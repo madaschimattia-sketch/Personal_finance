@@ -23,6 +23,9 @@ Progetto indipendente (nessuna sovrapposizione di account/repo/DB con altri prog
 4. **`user_id` (autenticazione) e `intestatario` (proprietà del dato) sono ortogonali** —
    mai fusi. Un dato può appartenere a un intestatario diverso dall'utente autenticato,
    con quote di cointestazione.
+5. **Archiviazione ordinata dei file di supporto.** Ogni dato normalizzato è riconducibile
+   al file grezzo (XML IBKR, PDF utenze/reddito) da cui proviene, conservato immutabile in
+   Storage e referenziato per id. Vedi [`docs/archiviazione-file-supporto.md`](docs/archiviazione-file-supporto.md).
 
 ## Sezioni
 
