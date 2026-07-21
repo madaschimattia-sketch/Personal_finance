@@ -1,0 +1,30 @@
+# Dipendenze
+node_modules/
+.pnpm-store/
+
+# Ambiente / secret — MAI committare
+.env
+.env.*
+!.env.example
+supabase/.env
+supabase/.temp/
+
+# Supabase CLI
+supabase/.branches/
+.supabase/
+
+# Build / cache
+dist/
+.vercel/
+*.log
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Dati grezzi locali di test (XML IBKR, PDF) — mai in repo
+*.local.xml
+/tmp-samples/
