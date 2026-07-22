@@ -161,6 +161,27 @@
 > fondi italiani (no RW) vs esteri (`fondi_pensione.is_estero` → RW). Schema
 > tabelle di calcolo non ancora definito.
 
+## Frontend — rimandato di proposito
+
+> Decisione esplicita dell'utente: nessun frontend finché il modello dati non è più
+> maturo, per evitare di costruire viste su uno schema ancora in movimento e doverle
+> poi rifare. Fino ad allora tutto (ingestione IBKR, motore lotti, quadro fiscale) resta
+> verificato solo via SQL diretto/script offline — nessun login, nessuna pagina, niente
+> da testare visivamente.
+>
+> Criterio per riconsiderare (non una data, un traguardo): la Fase 1 (motore fiscale)
+> è il dominio con più probabilità di richiedere ancora modifiche strutturali allo
+> schema (RM/RW/IVAFE/fondi pensione non ancora implementati, riconciliazione
+> OpenPosition non modellata). Il momento naturale per iniziare il frontend è quando
+> Fase 1 è **funzionalmente completa** (RT ✅, RM, RW, IVAFE e fondi pensione fatti) —
+> a quel punto lo schema `tax_*`/`conti`/`movimenti` dovrebbe essere stabile abbastanza
+> da non richiedere rework delle viste. Non è comunque necessario aspettare anche Fase
+> 2/3 (UTENZE/INTROITI): sono domini indipendenti che possono aggiungersi in seguito
+> senza toccare le viste già costruite per INVESTIMENTI.
+> Nel frattempo, la necessità di un JWT reale (bloccante per invocare le edge function
+> via HTTP, non solo via SQL diretto) resta un motivo pratico in più per non rimandare
+> all'infinito: il primo pezzo di frontend, quando si parte, sarà comunque login+auth.
+
 ## Fase 2 — UTENZE (ingestione Drive → PDF → Claude)
 
 Non iniziata. Pipeline separata da IBKR: parsing PDF via Claude API, non Flex Web Service.
