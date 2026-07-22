@@ -125,13 +125,17 @@ export interface TaxMovementRow {
 
 export function mapTrade(t: Record<string, unknown>, contoId: string, userId: string): {
   movimento: MovimentoRow;
-  taxMovement: TaxMovementRow;
+  taxMovement: TaxMovementRow | null;
 } {
   const fx = num(t.fxRateToBase) || 1;
   const importoEur = num(t.netCash) * fx;
   const prezzoEur = num(t.tradePrice) * fx;
   const commissioniEur = Math.abs(num(t.ibCommission)) * fx;
   const buySell = String(t.buySell ?? "");
+  const assetCategory = strOrNull(t.assetCategory);
+  // I trade con assetCategory 'CASH' sono conversioni valutarie (EUR/USD) per finanziare
+  // altri acquisti, non compravendita di uno strumento finanziario: niente tax_movement.
+  const isFiscallyRelevant = assetCategory !== "CASH";
 
   const movimento: MovimentoRow = {
     conto_id: contoId,
@@ -156,19 +160,21 @@ export function mapTrade(t: Record<string, unknown>, contoId: string, userId: st
     raw: t,
   };
 
-  const taxMovement: TaxMovementRow = {
-    conto_id: contoId,
-    user_id: userId,
-    tipo: buySell === "SELL" ? "vendita" : "acquisto",
-    data: movimento.data,
-    quantita: movimento.quantita,
-    prezzo_eur: prezzoEur,
-    importo_eur: importoEur,
-    commissioni_eur: commissioniEur,
-    ibkr_transaction_id: movimento.ibkr_transaction_id,
-    ibkr_trade_id: movimento.ibkr_trade_id,
-    isin: movimento.isin,
-  };
+  const taxMovement: TaxMovementRow | null = isFiscallyRelevant
+    ? {
+      conto_id: contoId,
+      user_id: userId,
+      tipo: buySell === "SELL" ? "vendita" : "acquisto",
+      data: movimento.data,
+      quantita: movimento.quantita,
+      prezzo_eur: prezzoEur,
+      importo_eur: importoEur,
+      commissioni_eur: commissioniEur,
+      ibkr_transaction_id: movimento.ibkr_transaction_id,
+      ibkr_trade_id: movimento.ibkr_trade_id,
+      isin: movimento.isin,
+    }
+    : null;
 
   return { movimento, taxMovement };
 }

@@ -114,7 +114,9 @@ async function processConto(
     for (const t of parsed.trades) {
       const { movimento, taxMovement } = mapTrade(t, conto.id, conto.user_id);
       movimenti.push(movimento);
-      taxMovements.push({ ...taxMovement, movimento_transaction_id: movimento.ibkr_transaction_id });
+      if (taxMovement) {
+        taxMovements.push({ ...taxMovement, movimento_transaction_id: movimento.ibkr_transaction_id });
+      }
     }
     for (const c of parsed.cash) {
       const { movimento, taxMovement } = mapCashTransaction(c, conto.id, conto.user_id);
