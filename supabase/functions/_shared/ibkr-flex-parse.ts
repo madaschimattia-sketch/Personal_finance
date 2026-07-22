@@ -35,9 +35,13 @@ export interface ParsedFlexStatement {
   transfers: Record<string, unknown>[];
   securities: Record<string, unknown>[];
   nav: Record<string, unknown>[];
+  // OptionEAE: Option Exercises/Assignments/Expirations. transactionType e' il campo
+  // che distingue i tre casi — solo 'Expiration' segue il trattamento standalone del
+  // motore lotti, 'Exercise'/'Assignment' vanno segnalati (vedi mapOptionEvent).
+  optionEvents: Record<string, unknown>[];
   // Sezioni presenti nell'XML ma NON ancora normalizzate in tabelle dedicate
   // (vedi docs/ibkr-flex-query-spec.md) — solo conteggiate per visibilita'.
-  nonGestite: { openPositions: number; interestAccruals: number; optionEAE: number; corporateActions: number };
+  nonGestite: { openPositions: number; interestAccruals: number; corporateActions: number };
 }
 
 export function parseFlexXml(xml: string): ParsedFlexStatement {
@@ -54,10 +58,10 @@ export function parseFlexXml(xml: string): ParsedFlexStatement {
     transfers: asArray(stmt.Transfers?.Transfer),
     securities: asArray(stmt.SecuritiesInfo?.SecurityInfo),
     nav: asArray(stmt.EquitySummaryInBase?.EquitySummaryByReportDateInBase),
+    optionEvents: asArray(stmt.OptionEAE?.OptionEAE),
     nonGestite: {
       openPositions: asArray(stmt.OpenPositions?.OpenPosition).length,
       interestAccruals: asArray(stmt.InterestAccruals?.InterestAccrualsCurrency).length,
-      optionEAE: asArray(stmt.OptionEAE?.OptionEAE).length,
       corporateActions: asArray(stmt.CorporateActions?.CorporateAction).length,
     },
   };
@@ -121,6 +125,7 @@ export interface TaxMovementRow {
   ibkr_transaction_id: string | null;
   ibkr_trade_id: string | null;
   isin: string | null; // usato solo per il lookup instrument_id lato chiamante
+  evento_opzione: "exercise" | "assignment" | "expiration" | null; // valorizzato dal chiamante da OptionEAE
 }
 
 export function mapTrade(t: Record<string, unknown>, contoId: string, userId: string): {
@@ -173,6 +178,7 @@ export function mapTrade(t: Record<string, unknown>, contoId: string, userId: st
       ibkr_transaction_id: movimento.ibkr_transaction_id,
       ibkr_trade_id: movimento.ibkr_trade_id,
       isin: movimento.isin,
+      evento_opzione: null, // valorizzato dal chiamante via mapOptionEventiPerTradeId
     }
     : null;
 
@@ -229,6 +235,7 @@ export function mapCashTransaction(c: Record<string, unknown>, contoId: string, 
       ibkr_transaction_id: movimento.ibkr_transaction_id,
       ibkr_trade_id: null,
       isin: movimento.isin,
+      evento_opzione: null,
     }
     : null;
 
@@ -284,7 +291,30 @@ export function mapSecurityInfo(s: Record<string, unknown>) {
     issuer: strOrNull(s.issuer),
     issuer_country_code: strOrNull(s.issuerCountryCode),
     metodo_costo: metodoCostoDaSubCategory(subCategory),
+    // collegamento al sottostante (rilevante per opzioni/derivati) — solo informativo
+    // finche' il motore lotti non gestisce automaticamente esercizio/assegnazione.
+    underlying_conid: strOrNull(s.underlyingConid),
+    underlying_isin: strOrNull(s.underlyingSecurityID),
+    underlying_symbol: strOrNull(s.underlyingSymbol),
   };
+}
+
+// OptionEAE -> mappa ibkr_trade_id -> evento ('exercise'|'assignment'|'expiration').
+// Solo 'expiration' e' gestito automaticamente dal motore lotti (chiusura standalone,
+// comportamento verificato sul caso reale OKLO); 'exercise'/'assignment' vengono
+// scritti su tax_movements.evento_opzione per essere segnalati come anomalia dal
+// motore, perche' il premio potrebbe dover essere redistribuito sul lotto del
+// sottostante (non ancora automatizzato — vedi docs/decisioni-fiscali.md).
+export function mapOptionEventiPerTradeId(optionEvents: Record<string, unknown>[]): Map<string, "exercise" | "assignment" | "expiration"> {
+  const mappa = new Map<string, "exercise" | "assignment" | "expiration">();
+  for (const e of optionEvents) {
+    const tradeId = strOrNull(e.tradeID);
+    const tipo = String(e.transactionType ?? "").toLowerCase();
+    if (tradeId && (tipo === "exercise" || tipo === "assignment" || tipo === "expiration")) {
+      mappa.set(tradeId, tipo);
+    }
+  }
+  return mappa;
 }
 
 export function mapNavRow(n: Record<string, unknown>, contoId: string, userId: string) {

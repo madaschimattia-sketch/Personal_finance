@@ -3,11 +3,20 @@
 // 'acquisto'/'vendita' per un singolo strumento, gia' ordinati cronologicamente.
 // Puro/testabile: nessuna dipendenza da Supabase, solo strutture dati in ingresso/uscita.
 //
-// Strategia di ricalcolo: FULL RECOMPUTE per strumento/conto ad ogni esecuzione (i lotti
-// esistenti vengono cancellati e ricostruiti da zero dai tax_movements correnti). Corretto
-// finche' non esistono annualita' gia' dichiarate: quando si introduce il primo utilizzo
-// "in produzione" (dichiarazione presentata), il ricalcolo dovra' diventare incrementale
-// per non riscrivere lotti di anni gia' chiusi — non ancora implementato.
+// Sicurezza anni gia' dichiarati: il motore stesso resta "full recompute" (rigenera
+// sempre tutto in memoria da zero), ma gli id dei lotti sono RIUSATI da quelli gia'
+// esistenti in DB (via lottiEsistenti, chiave = acquisto_movement_id) invece di essere
+// rigenerati random. Questo permette al chiamante (edge function) di confrontare il
+// risultato con lo stato attuale e RIFIUTARE la scrittura se un anno gia' dichiarato
+// (tax_lot_closures.data_chiusura in un anno con dichiarazioni_fiscali.stato='presentata')
+// risulterebbe diverso da quanto gia' registrato — vedi calcola-lotti-fiscali/index.ts.
+//
+// Opzioni esercitate/assegnate: il premio dovrebbe essere redistribuito sul lotto del
+// sottostante (non creare una chiusura fiscale autonoma sull'opzione) — non ancora
+// automatizzato: questi casi vengono comunque chiusi in modo standalone (come oggi) ma
+// segnalati in anomalie con tipo 'esercizio_assegnazione_non_gestito', perche' il calcolo
+// standalone e' probabilmente sbagliato e va rivisto a mano. Solo 'expiration' (scadenza
+// worthless, verificata sul caso reale OKLO) e' considerato corretto cosi' com'e'.
 
 export interface TaxMovementInput {
   id: string;
@@ -15,6 +24,7 @@ export interface TaxMovementInput {
   data: string; // YYYY-MM-DD
   quantita: number; // con segno: positiva per acquisto, negativa per vendita
   importo_eur: number; // con segno: negativo per acquisto (uscita cassa), positivo per vendita (gia' netto commissioni)
+  evento_opzione?: "exercise" | "assignment" | "expiration" | null;
 }
 
 export interface InstrumentTaxInfo {
@@ -25,7 +35,7 @@ export interface InstrumentTaxInfo {
 }
 
 export interface LotOutput {
-  id: string; // uuid pre-generato dal chiamante, cosi' le closures possono referenziarlo
+  id: string;
   acquisto_movement_id: string;
   metodo_applicato: "lifo" | "media_ponderata";
   data_acquisto: string;
@@ -48,12 +58,14 @@ export interface ClosureOutput {
   categoria_compensazione: "ordinaria" | "whitelist" | "oicr_non_compensabile" | null;
 }
 
+export type Anomalia =
+  | { tipo: "quantita_insufficiente"; vendita_movement_id: string; quantita_non_coperta: number }
+  | { tipo: "esercizio_assegnazione_non_gestito"; vendita_movement_id: string; evento_opzione: "exercise" | "assignment" };
+
 export interface EngineResult {
   lots: LotOutput[];
   closures: ClosureOutput[];
-  // vendite che non hanno trovato quantita' sufficiente nei lotti aperti (dato mancante
-  // o errore di sequenza) — vanno segnalate, mai ignorate silenziosamente.
-  anomalie: { vendita_movement_id: string; quantita_non_coperta: number }[];
+  anomalie: Anomalia[];
 }
 
 function giorniTra(dataA: string, dataB: string): number {
@@ -76,12 +88,13 @@ export function nuovoId(): string {
 export function calcolaLotti(
   movimenti: TaxMovementInput[],
   info: InstrumentTaxInfo,
+  lottiEsistenti?: Map<string, string>, // acquisto_movement_id -> id lotto gia' presente in DB
 ): EngineResult {
   const ordinati = [...movimenti].sort((a, b) => a.data.localeCompare(b.data) || a.id.localeCompare(b.id));
 
   const lots: LotOutput[] = [];
   const closures: ClosureOutput[] = [];
-  const anomalie: EngineResult["anomalie"] = [];
+  const anomalie: Anomalia[] = [];
   const categoria = categoriaCompensazione(info);
 
   for (const m of ordinati) {
@@ -89,7 +102,7 @@ export function calcolaLotti(
       const quantitaOriginale = m.quantita;
       const costoTotale = Math.abs(m.importo_eur);
       lots.push({
-        id: nuovoId(),
+        id: lottiEsistenti?.get(m.id) ?? nuovoId(),
         acquisto_movement_id: m.id,
         metodo_applicato: info.metodo_costo,
         data_acquisto: m.data,
@@ -103,6 +116,13 @@ export function calcolaLotti(
     }
 
     // vendita
+    if (m.evento_opzione === "exercise" || m.evento_opzione === "assignment") {
+      anomalie.push({ tipo: "esercizio_assegnazione_non_gestito", vendita_movement_id: m.id, evento_opzione: m.evento_opzione });
+      // si prosegue comunque con la chiusura standalone sotto: meglio un numero probabilmente
+      // impreciso ma segnalato, che nessun numero — la segnalazione in anomalie e' il segnale
+      // che impedisce di trattarlo come dato affidabile senza revisione.
+    }
+
     let daChiudere = Math.abs(m.quantita);
     const ricavoTotale = m.importo_eur;
     const ricavoUnitario = daChiudere !== 0 ? ricavoTotale / daChiudere : 0;
@@ -147,7 +167,7 @@ export function calcolaLotti(
     }
 
     if (daChiudere > 1e-9) {
-      anomalie.push({ vendita_movement_id: m.id, quantita_non_coperta: daChiudere });
+      anomalie.push({ tipo: "quantita_insufficiente", vendita_movement_id: m.id, quantita_non_coperta: daChiudere });
     }
   }
 

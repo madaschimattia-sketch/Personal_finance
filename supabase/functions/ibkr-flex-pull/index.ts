@@ -23,6 +23,7 @@ import {
   mapTransfer,
   mapSecurityInfo,
   mapNavRow,
+  mapOptionEventiPerTradeId,
   type MovimentoRow,
   type TaxMovementRow,
 } from "../_shared/ibkr-flex-parse.ts";
@@ -141,11 +142,18 @@ async function processConto(
     const movimenti: MovimentoRow[] = [];
     const taxMovements: (TaxMovementRow & { movimento_transaction_id: string | null })[] = [];
 
+    // OptionEAE.transactionType (Exercise/Assignment/Expiration) per tradeID: solo
+    // 'expiration' e' trattato come chiusura standalone corretta dal motore lotti,
+    // 'exercise'/'assignment' vengono comunque salvati ma segnalati come anomalia da
+    // calcola-lotti-fiscali (premio da redistribuire sul sottostante, non automatizzato).
+    const eventiOpzionePerTradeId = mapOptionEventiPerTradeId(parsed.optionEvents);
+
     for (const t of parsed.trades) {
       const { movimento, taxMovement } = mapTrade(t, conto.id, conto.user_id);
       movimenti.push(movimento);
       if (taxMovement) {
-        taxMovements.push({ ...taxMovement, movimento_transaction_id: movimento.ibkr_transaction_id });
+        const evento = taxMovement.ibkr_trade_id ? eventiOpzionePerTradeId.get(taxMovement.ibkr_trade_id) ?? null : null;
+        taxMovements.push({ ...taxMovement, evento_opzione: evento, movimento_transaction_id: movimento.ibkr_transaction_id });
       }
     }
     for (const c of parsed.cash) {

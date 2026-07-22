@@ -69,21 +69,40 @@
       `classificazione_confermata=true` (protezione dalla revisione umana).
 - [x] Motore di matching lotti (LIFO/media ponderata) — modulo condiviso
       `supabase/functions/_shared/lot-matching.ts` + edge function
-      `calcola-lotti-fiscali` (JWT-protected, deployata `ACTIVE`). **Full recompute**
-      per conto/strumento ad ogni esecuzione (documentato: da rivedere quando
-      esistono annualità già dichiarate — vedi commento in testa al modulo).
+      `calcola-lotti-fiscali` (JWT-protected, deployata `ACTIVE`, v2).
       Eseguito sui dati reali BUDGETING via script offline (nessun JWT per invocare
       via HTTP, stesso limite di `ibkr-flex-pull`): **96 lotti (62 aperti, 34 chiusi),
       46 chiusure, plus/minus netto 4.764,48 €, nessuna anomalia di matching**
       (ogni vendita ha trovato quantità sufficiente nei lotti aperti).
-      `categoria_compensazione` resta `NULL` per ogni chiusura finché
-      `tax_instruments.classificazione_confermata=false` (whitelist/OICR non
-      ancora confermati — vedi `tax_paesi_whitelist` vuota, sotto).
-- [ ] `tax_paesi_whitelist` è **vuota** — nessun paese inserito (lista non guessata
-      di proposito, serve conferma esatta). Finché resta vuota, nessuna chiusura
-      lotto può avere `categoria_compensazione='whitelist'`, anche per i titoli di
-      stato francesi/USA nel backfill (subCategory='Govt' confermato da IBKR, ma
-      whitelist fiscale non verificata).
+- [x] **Sicurezza anni già dichiarati** — `dichiarazioni_fiscali` (migration `0006`:
+      2023/2024 `presentata` → immutabili, 2025 `in_preparazione`, 2026
+      `non_iniziata`) pilota `calcola-lotti-fiscali`: id lotto riusati
+      (chiave `acquisto_movement_id`) così le chiusure ricalcolate sono
+      confrontabili 1:1 con quelle in DB via `(lot_id, vendita_movement_id)`; uno
+      strumento con divergenze su un anno bloccato viene saltato integralmente
+      (nessuna scrittura, riportato in `strumenti_saltati_per_divergenza`) — mai
+      sovrascritto senza controllo umano. Validato offline: **29/29 chiusure
+      2023-2024 coincidenti col ricalcolo, zero divergenze**. Dettagli in
+      `docs/decisioni-fiscali.md`.
+- [x] **Opzioni: collegamento al sottostante + esercizio/assegnazione vs scadenza**
+      — `tax_instruments.underlying_conid/isin/symbol` (informativo, migration
+      `0007`) + `tax_movements.evento_opzione` da `OptionEAE.transactionType`
+      (`ibkr-flex-pull` v6, via `mapOptionEventiPerTradeId`). `expiration`
+      (verificato su OKLO) resta chiusura standalone corretta; `exercise`/
+      `assignment` (nessun caso reale ancora nei dati) vengono comunque chiusi
+      standalone come fallback ma segnalati in `anomalie`
+      (`esercizio_assegnazione_non_gestito`) — la redistribuzione del premio sul
+      lotto del sottostante non è automatizzata finché non c'è un caso reale su
+      cui validarla. Dettagli in `docs/decisioni-fiscali.md`.
+- [x] `tax_paesi_whitelist` **popolata e verificata** (migration `0008`, 134 righe
+      dal testo integrale del Decreto Min. Finanze 4/9/1996 consolidato al
+      03/04/2017, `verificato=true`) — sostituisce il seed provvisorio FR/US.
+      `tax_instruments` per l'OAT francese e il T-bond USA aggiornati a
+      `is_titolo_stato_whitelist=true`, `classificazione_confermata=true` (nessun
+      impatto retroattivo: zero chiusure esistenti su questi due strumenti finora,
+      quindi `categoria_compensazione='whitelist'` si applicherà dalla prossima
+      vendita). Dettagli e limiti (elenco non auto-aggiornante, art. 1-bis) in
+      `docs/decisioni-fiscali.md`.
 - [ ] Aggregazione `tax_events` per quadro (RT/RM/RW) da `tax_lot_closures` — non
       ancora implementata, passo successivo naturale dopo il motore lotti.
 - [ ] Riconciliazione: confronto lotti calcolati vs snapshot `OpenPosition` IBKR
