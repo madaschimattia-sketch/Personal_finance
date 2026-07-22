@@ -133,9 +133,24 @@
       nessuna minusvalenza/riporto (tutte le chiusure 2025 sono plusvalenze).
       Seed `config_fiscale_parametri` per anno 2025 (migration `0009`, stessi
       valori del 2026, `verificato=false`).
-- [ ] Quadro RM (dividendi/interessi/cedole, credito d'imposta estero) e quadro
-      RW (monitoraggio estero + IVAFE) — non ancora implementati, prossimi passi
-      naturali del quadro fiscale dopo RT.
+- [x] **Quadro RM Sezione V** (redditi di capitale di fonte estera: dividendi,
+      interessi, cedole — art. 44/45 TUIR) — modulo condiviso
+      `supabase/functions/_shared/quadro-rm.ts` + edge function `calcola-quadro-rm`
+      (JWT-protected per utente). A differenza di RT non c'è compensazione: ogni
+      provento è imponibile per intero, ridotto solo dal credito d'imposta per le
+      ritenute estere subite (`tax_movements.tipo='ritenuta'`), limitato al minore
+      tra ritenuta e imposta italiana lorda sulla stessa categoria (eccedenza non
+      utilizzata, segnalata per verifica commercialista — IBKR non è sostituto
+      d'imposta italiano, quindi tutto va autoliquidato). Distinzione
+      whitelist/ordinaria solo per le cedole di titoli di stato whitelist; OICR
+      non ha trattamento speciale in RM (a differenza di RT). Stessa sicurezza
+      anni già dichiarati di RT. Calcolato per il 2025 (via SQL diretto): reddito
+      ordinario imponibile 817,75 € (imposta lorda 212,62 €, credito estero
+      82,49 €, imposta netta 130,12 €), cedole whitelist imponibile 188,95 €
+      (imposta 23,62 €, nessuna ritenuta) — **imposta totale RM 2025 stimata
+      153,74 €**. Dettagli in `docs/decisioni-fiscali.md`.
+- [ ] Quadro RW (monitoraggio estero + IVAFE) — prossimo passo naturale del quadro
+      fiscale dopo RT/RM.
 - [ ] Riconciliazione: confronto lotti calcolati vs snapshot `OpenPosition` IBKR
       (validazione, non ancora modellata come tabella — vedi nota in
       `docs/ibkr-flex-query-spec.md`)

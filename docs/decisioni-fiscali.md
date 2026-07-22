@@ -150,6 +150,43 @@ a differenza del motore lotti che lavora per conto).
   2023/2024 da riportare al 2025, vanno seminate a mano in `tax_loss_carryforward` prima di
   considerare definitivo il numero sopra).
 
+## Quadro RM Sezione V — redditi di capitale di fonte estera (art. 44/45 TUIR)
+
+Decisione: dividendi, interessi (cassa) e cedole obbligazionarie percepiti via IBKR vanno
+autoliquidati dall'utente nel quadro RM Sezione V, perché **IBKR non è un sostituto
+d'imposta italiano** — a differenza di un intermediario italiano, non applica lui stesso
+l'imposta sostitutiva alla fonte. Modulo puro `supabase/functions/_shared/quadro-rm.ts` +
+edge function `calcola-quadro-rm` (JWT-protected, per utente su tutti i conti, come RT).
+
+- **Nessuna compensazione** (a differenza di RT): ogni provento è imponibile per intero,
+  non ci sono minusvalenze né riporti in RM. L'unica riduzione è il **credito d'imposta**
+  per le ritenute subite alla fonte estera (`tax_movements.tipo='ritenuta'`).
+- Distinzione whitelist/ordinaria **solo per le cedole di titoli di stato whitelist**
+  (12,5% invece di 26%) — i proventi da OICR (dividendi/distribuzioni di fondi UCITS) non
+  hanno un trattamento speciale in RM: sono redditi di capitale come qualunque altro
+  dividendo, aliquota ordinaria. La distinzione OICR/non-OICR di `quadro-rt.ts` **non**
+  si applica qui (riguarda solo la compensabilità delle minus in RT, non la tassazione dei
+  proventi periodici).
+- Matching ritenuta↔provento **per categoria/anno aggregato, non riga per riga**:
+  `tax_movements` non ha un FK esplicito dalla ritenuta al provento che l'ha generata (sono
+  due `CashTransaction` separate nello stesso giorno nell'XML IBKR). Il credito d'imposta è
+  quindi calcolato come pool aggregato per categoria, non un abbinamento 1:1 verificabile.
+- Credito d'imposta **limitato al minore tra ritenuta subita e imposta italiana lorda
+  sulla stessa categoria** (scelta prudente, non un'asserzione di diritto tributario): se
+  la ritenuta eccede l'imposta lorda dovuta, l'eccedenza non viene utilizzata né
+  considerata rimborsabile/riportabile da questo calcolo — segnalata nell'evento per
+  verifica del commercialista. Nei dati reali 2025 non si è mai verificato (le ritenute,
+  tutte al 15% da trattato USA-Italia su dividendi NVDA/CGBD/TDIV, sono sempre ben al di
+  sotto del 26% italiano).
+- Stessa sicurezza anni già dichiarati di RT (rifiuta di scrivere se
+  `dichiarazioni_fiscali.stato='presentata'`).
+- **Calcolato per il 2025**: reddito ordinario (dividendi + interessi cassa) imponibile
+  817,75 € (imposta lorda 212,62 €, credito d'imposta estero 82,49 €, imposta netta
+  130,12 €); cedole whitelist (OAT + T-bond) imponibile 188,95 € (imposta 23,62 €, nessuna
+  ritenuta — coerente: interessi su titoli di stato USA/Francia non hanno subito
+  withholding, trattato applicato correttamente da IBKR a monte). **Imposta RM 2025 totale
+  stimata: 153,74 €**.
+
 ## Opzioni: esercizio/assegnazione vs scadenza — casistiche separate
 
 Decisione (a valle del chiarimento dell'utente: "gestire le due casistiche separatamente in
