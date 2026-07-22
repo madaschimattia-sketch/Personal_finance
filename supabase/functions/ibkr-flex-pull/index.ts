@@ -47,12 +47,18 @@ function json(status: number, body: unknown) {
   });
 }
 
-async function processConto(admin: ReturnType<typeof createAdminClient>, conto: Conto, token: string) {
-  if (!conto.flex_query_id) {
+async function processConto(
+  admin: ReturnType<typeof createAdminClient>,
+  conto: Conto,
+  token: string,
+  queryIdOverride?: string,
+) {
+  const queryId = queryIdOverride || conto.flex_query_id;
+  if (!queryId) {
     return { conto_id: conto.id, status: "skipped", motivo: "flex_query_id non configurato" };
   }
 
-  const { xml, referenceCode } = await pullFlexStatement(token, conto.flex_query_id);
+  const { xml, referenceCode } = await pullFlexStatement(token, queryId);
   const parsed = parseFlexXml(xml);
   const hash = await sha256Hex(xml);
   const now = new Date();
@@ -204,9 +210,14 @@ Deno.serve(async (req: Request) => {
     if (!token) return json(500, { error: "IBKR_FLEX_TOKEN non configurato" });
 
     let contoIdFiltro: string | undefined;
+    let queryIdOverride: string | undefined;
     if (req.method === "POST") {
       const body = await req.json().catch(() => ({}));
       contoIdFiltro = body?.conto_id;
+      // Override valido solo insieme a conto_id: serve per pull ad-hoc (es. backfill storico
+      // con una Query ID diversa da quella configurata in conti.flex_query_id), senza dover
+      // toccare la configurazione permanente del conto.
+      if (contoIdFiltro) queryIdOverride = body?.flex_query_id_override;
     }
 
     let query = admin
@@ -214,9 +225,12 @@ Deno.serve(async (req: Request) => {
       .select("id, user_id, ibkr_account_id, flex_query_id")
       .eq("user_id", userId)
       .eq("broker", "IBKR")
-      .eq("attivo", true)
-      .not("flex_query_id", "is", null);
-    if (contoIdFiltro) query = query.eq("id", contoIdFiltro);
+      .eq("attivo", true);
+    if (contoIdFiltro) {
+      query = query.eq("id", contoIdFiltro);
+    } else {
+      query = query.not("flex_query_id", "is", null);
+    }
 
     const { data: conti, error: contiErr } = await query;
     if (contiErr) return json(500, { error: `Lettura conti fallita: ${contiErr.message}` });
@@ -227,7 +241,7 @@ Deno.serve(async (req: Request) => {
     const results = [];
     for (const conto of conti as Conto[]) {
       try {
-        results.push(await processConto(admin, conto, token));
+        results.push(await processConto(admin, conto, token, queryIdOverride));
       } catch (e) {
         const message = e instanceof FlexQueryError
           ? `${e.message}${e.code ? ` (code ${e.code})` : ""}`
