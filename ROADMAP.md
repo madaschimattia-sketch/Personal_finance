@@ -20,14 +20,34 @@
 - [x] Bucket Storage `documenti-grezzi` (privato) + policy per `user_id` (migration `0003`)
 - [x] Edge function `ibkr-flex-pull` — pull (SendRequest/GetStatement+retry), archiviazione
       grezzo, normalizzazione (`tax_instruments`, `movimenti`, `tax_movements`,
-      `conto_nav_giornaliero`). Protetta da JWT utente, deployata (`ACTIVE`).
-      **Non ancora testata con un pull reale** — serve `IBKR_FLEX_TOKEN` (secret) e
-      `conti.flex_query_id` valorizzato per almeno un conto prima del primo invocation.
+      `conto_nav_giornaliero`). Protetta da JWT utente, deployata (`ACTIVE`, v4).
+      Supporta `flex_query_id_override` per pull ad-hoc (backfill con query diversa
+      da quella configurata sul conto).
+      **Non ancora invocata via HTTP** (nessun frontend/login ancora costruito in
+      questo repo per ottenere un JWT utente) — il backfill storico è stato fatto
+      con SQL diretto (vedi sotto), non attraverso la function stessa.
+- [x] Conto `BUDGETING` (IBKR `U13283246`, `flex_query_id=1579055`, YTD per i pull
+      ricorrenti) inserito. **Backfill storico completo dic-2023→dic-2025** da 3
+      XML forniti manualmente (`BUDGETING_2023/2024/2025.xml`): 282 `movimenti`,
+      210 `tax_movements`, 26 `tax_instruments`, 526 righe `conto_nav_giornaliero`.
+      **Nota**: i 3 XML sorgente NON sono stati archiviati su Storage (nessun JWT
+      disponibile per l'upload) — `documenti_grezzi` non ha righe per questo backfill,
+      a differenza di quanto accadrà per i pull futuri via edge function. Da chiudere
+      quando esiste un flusso di login: o si ri-esegue il pull via function (che
+      archivia correttamente), o si caricano manualmente i 3 file via Storage UI.
+- [x] Bug trovato e corretto durante il backfill: i `Trade` con `assetCategory='CASH'`
+      (conversioni valutarie EUR/USD di servizio) venivano trattati come acquisto/
+      vendita fiscale — ora esclusi da `tax_movements` (restano in `movimenti` come
+      ledger). Fix applicato sia allo script di backfill sia alla edge function (v4).
 - [ ] Motore di calcolo lotti: matching vendita→lotto (LIFO/media ponderata),
-      popolamento `tax_lot_closures`/`tax_events` (passo successivo, separato dal pull)
+      popolamento `tax_lot_closures`/`tax_events` (passo successivo, separato dal pull).
+      Nota: i dati per il 2024-2025 sono già in `tax_movements`, pronti da consumare.
 - [ ] Riconciliazione: confronto lotti calcolati vs snapshot `OpenPosition` IBKR
       (validazione, non ancora modellata come tabella — vedi nota in
       `docs/ibkr-flex-query-spec.md`)
+- [ ] Trasferimenti titoli (`transfer_titoli`): il costo di carico per lotti trasferiti
+      IN non è ancora seminato nel motore lotti — nessuno nel backfill 2023-2025
+      (solo `transfer_cassa` osservati), ma da gestire se ricorre in futuro.
 
 ### Backlog Fase 1 — motore di calcolo fondi pensione
 
