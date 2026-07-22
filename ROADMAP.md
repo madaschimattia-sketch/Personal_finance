@@ -61,15 +61,43 @@
       (conversioni valutarie EUR/USD di servizio) venivano trattati come acquisto/
       vendita fiscale — ora esclusi da `tax_movements` (restano in `movimenti` come
       ledger). Fix applicato sia allo script di backfill sia alla edge function (v4).
-- [ ] Motore di calcolo lotti: matching vendita→lotto (LIFO/media ponderata),
-      popolamento `tax_lot_closures`/`tax_events` (passo successivo, separato dal pull).
-      Nota: i dati per il 2024-2025 sono già in `tax_movements`, pronti da consumare.
+- [x] `tax_instruments.sub_category` (migration `0005`) + `metodo_costo` derivato dal
+      segnale oggettivo IBKR (`subCategory='ETF'` → media ponderata, resto → LIFO):
+      19 ETF/ETC (incl. i tracker materie prime/cripto WBTC/SLVRP/COPAl — IBKR li
+      classifica lui stesso come ETF), 4 azioni ordinarie, 1 ADR, 2 titoli di stato
+      → LIFO. `ibkr-flex-pull` non sovrascrive più `metodo_costo` una volta che
+      `classificazione_confermata=true` (protezione dalla revisione umana).
+- [x] Motore di matching lotti (LIFO/media ponderata) — modulo condiviso
+      `supabase/functions/_shared/lot-matching.ts` + edge function
+      `calcola-lotti-fiscali` (JWT-protected, deployata `ACTIVE`). **Full recompute**
+      per conto/strumento ad ogni esecuzione (documentato: da rivedere quando
+      esistono annualità già dichiarate — vedi commento in testa al modulo).
+      Eseguito sui dati reali BUDGETING via script offline (nessun JWT per invocare
+      via HTTP, stesso limite di `ibkr-flex-pull`): **96 lotti (62 aperti, 34 chiusi),
+      46 chiusure, plus/minus netto 4.764,48 €, nessuna anomalia di matching**
+      (ogni vendita ha trovato quantità sufficiente nei lotti aperti).
+      `categoria_compensazione` resta `NULL` per ogni chiusura finché
+      `tax_instruments.classificazione_confermata=false` (whitelist/OICR non
+      ancora confermati — vedi `tax_paesi_whitelist` vuota, sotto).
+- [ ] `tax_paesi_whitelist` è **vuota** — nessun paese inserito (lista non guessata
+      di proposito, serve conferma esatta). Finché resta vuota, nessuna chiusura
+      lotto può avere `categoria_compensazione='whitelist'`, anche per i titoli di
+      stato francesi/USA nel backfill (subCategory='Govt' confermato da IBKR, ma
+      whitelist fiscale non verificata).
+- [ ] Aggregazione `tax_events` per quadro (RT/RM/RW) da `tax_lot_closures` — non
+      ancora implementata, passo successivo naturale dopo il motore lotti.
 - [ ] Riconciliazione: confronto lotti calcolati vs snapshot `OpenPosition` IBKR
       (validazione, non ancora modellata come tabella — vedi nota in
       `docs/ibkr-flex-query-spec.md`)
 - [ ] Trasferimenti titoli (`transfer_titoli`): il costo di carico per lotti trasferiti
       IN non è ancora seminato nel motore lotti — nessuno nel backfill 2023-2025
       (solo `transfer_cassa` osservati), ma da gestire se ricorre in futuro.
+- [ ] Opzioni senza ISIN: `ibkr-flex-pull` scarta le righe `SecuritiesInfo` senza ISIN
+      (filtro `.filter(s => s.isin)`), quindi un pull normale **non crea**
+      `tax_instruments` per le opzioni. Per il backfill l'unica opzione (OKLO call)
+      è stata inserita a mano (`conid` come riferimento, `isin=NULL`). Se in futuro
+      ricorrono più opzioni, va rivista la chiave di upsert (oggi solo su `isin`,
+      andrebbe estesa a `conid` per evitare righe duplicate ad ogni pull).
 
 ### Backlog Fase 1 — motore di calcolo fondi pensione
 
