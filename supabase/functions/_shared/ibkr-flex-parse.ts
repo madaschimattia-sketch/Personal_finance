@@ -265,15 +265,25 @@ export function mapTransfer(t: Record<string, unknown>, contoId: string, userId:
   };
 }
 
+// Media ponderata per ETF/OICR (subCategory='ETF'), LIFO per il resto (azioni, ADR,
+// obbligazioni governative, opzioni) — subCategory e' un campo oggettivo di IBKR, non
+// un giudizio fiscale nostro. classificazione_confermata resta false: e' un suggerimento.
+function metodoCostoDaSubCategory(subCategory: string | null): "lifo" | "media_ponderata" {
+  return subCategory === "ETF" ? "media_ponderata" : "lifo";
+}
+
 export function mapSecurityInfo(s: Record<string, unknown>) {
+  const subCategory = strOrNull(s.subCategory);
   return {
     isin: strOrNull(s.isin),
     conid: strOrNull(s.conid),
     symbol: strOrNull(s.symbol),
     descrizione: strOrNull(s.description),
     asset_category: strOrNull(s.assetCategory),
+    sub_category: subCategory,
     issuer: strOrNull(s.issuer),
     issuer_country_code: strOrNull(s.issuerCountryCode),
+    metodo_costo: metodoCostoDaSubCategory(subCategory),
   };
 }
 

@@ -91,13 +91,43 @@ async function processConto(
   const documentoGrezzoId = docGrezzo.id as string;
 
   try {
-    // 1) tax_instruments (upsert; non sovrascrive le classificazioni gia' confermate a mano)
+    // 1) tax_instruments (upsert; non sovrascrive metodo_costo/whitelist/oicr una volta
+    //    che classificazione_confermata=true, altrimenti un pull successivo cancellerebbe
+    //    la revisione umana con il suggerimento automatico da subCategory)
     const instrumentRows = parsed.securities.map(mapSecurityInfo).filter((s) => s.isin);
     if (instrumentRows.length > 0) {
-      const { error } = await admin
+      const isins = instrumentRows.map((s) => s.isin as string);
+      const { data: existing, error: existErr } = await admin
         .from("tax_instruments")
-        .upsert(instrumentRows, { onConflict: "isin", ignoreDuplicates: false });
-      if (error) throw new Error(`Upsert tax_instruments fallito: ${error.message}`);
+        .select("isin, classificazione_confermata")
+        .in("isin", isins);
+      if (existErr) throw new Error(`Lettura tax_instruments esistenti fallita: ${existErr.message}`);
+      const confermati = new Set((existing ?? []).filter((r) => r.classificazione_confermata).map((r) => r.isin as string));
+
+      const daSuggerire = instrumentRows.filter((s) => !confermati.has(s.isin as string));
+      const daAggiornareSoloDescrittivo = instrumentRows.filter((s) => confermati.has(s.isin as string));
+
+      if (daSuggerire.length > 0) {
+        const { error } = await admin
+          .from("tax_instruments")
+          .upsert(daSuggerire, { onConflict: "isin", ignoreDuplicates: false });
+        if (error) throw new Error(`Upsert tax_instruments fallito: ${error.message}`);
+      }
+      for (const s of daAggiornareSoloDescrittivo) {
+        const { error } = await admin
+          .from("tax_instruments")
+          .update({
+            conid: s.conid,
+            symbol: s.symbol,
+            descrizione: s.descrizione,
+            asset_category: s.asset_category,
+            sub_category: s.sub_category,
+            issuer: s.issuer,
+            issuer_country_code: s.issuer_country_code,
+          })
+          .eq("isin", s.isin as string);
+        if (error) throw new Error(`Update descrittivo tax_instruments fallito: ${error.message}`);
+      }
     }
 
     const { data: instruments, error: instrErr } = await admin
