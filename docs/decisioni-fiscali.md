@@ -77,6 +77,79 @@ chiarito in sessione: il primo PDF caricato era la legge delega, non il decreto 
   `classificazione_confermata=true` (nessuna chiusura esistente su questi due strumenti, quindi
   nessun impatto retroattivo su annualità già dichiarate — verificato prima di scrivere).
 
+## Classificazione OICR/non-OICR — tutti gli strumenti (migration `0010`)
+
+Decisione: `subCategory='ETF'` di IBKR **non distingue** un fondo vero (OICR, UCITS
+armonizzato) da un ETC (Exchange Traded Commodity — nota di debito fisicamente garantita,
+NON un organismo di investimento collettivo). Questa distinzione cambia il trattamento
+fiscale (le minus da OICR non compensano nulla; le minus da un ETC, essendo "redditi
+diversi" ordinari, sì) — non era automatizzabile dal solo dato IBKR, serviva una verifica
+per prodotto.
+
+- **Verificato via web search** (non solo inferenza dal nome): WisdomTree Physical Bitcoin
+  (WBTC) → "UCITS Eligible: sì, UCITS Compliant: NO", forma legale "Debt Security/ETP",
+  domicilio Jersey; Amundi Physical Gold ETC (GOLD) → struttura ETC, "eligible for
+  investment in UCITS schemes" (non è esso stesso un UCITS); Amundi S&P 500 VIX Futures
+  Enhanced Roll (LVO) → confermato "UCITS compliant exchange traded fund"; Xtrackers MSCI
+  EM (XMME) → confermato fondo UCITS standard; Carlyle Secured Lending (CGBD) → BDC USA
+  quotata NASDAQ, gestita da adviser SEC-registered, **non** un veicolo UE/whitelist.
+- **Esteso per pattern** (stessa famiglia emittente/struttura, non verificato singolarmente):
+  SLVRP/COPAl (stessa famiglia WisdomTree Physical di WBTC) → non-OICR; gli altri 13 fondi
+  UCITS di iShares/Amundi/Xtrackers/VanEck/Vanguard/SPDR/Invesco (domicilio IE/LU/NL/FR) →
+  OICR, per lo stesso pattern verificato su LVO/XMME.
+- Risultato: 10 strumenti non-OICR (4 azioni USA, 1 ADR, 1 BDC, 1 opzione, 4 ETC fisici su
+  commodity/cripto), 15 OICR (fondi UCITS), 2 titoli di stato whitelist (già fatti in
+  `0008`) — **tutti i 27 strumenti ora `classificazione_confermata=true`**.
+- `tax_lot_closures.categoria_compensazione` ricalcolato con un semplice `UPDATE ... FROM`
+  che deriva la categoria dalla classificazione dello strumento (non serve rieseguire il
+  motore lotti: la categoria non dipende dalle quantità/importi della chiusura, solo dallo
+  strumento) — nessun impatto su quantità/importi già registrati, quindi sicuro anche per
+  le chiusure di anni congelati (2023/2024).
+- **Punto aperto per il commercialista**: la reale compensabilità delle minusvalenze da
+  OICR "armonizzati" (UCITS) con altre categorie di redditi diversi, dopo l'unificazione del
+  regime fiscale (D.L. 138/2011, in vigore dal 2012), è un tema di diritto tributario non
+  banale che questo progetto non ridiscute — segue la separazione già incorporata nello
+  schema prima di questa sessione (categoria `oicr_non_compensabile` a sé, nessun riporto).
+  Se il commercialista conferma che le minus OICR post-2012 sono in realtà compensabili con
+  le altre categorie di redditi diversi, `tax_loss_carryforward.categoria` e la logica di
+  `quadro-rt.ts` andranno estesi di conseguenza.
+
+## Quadro RT — aggregazione redditi diversi di natura finanziaria (art. 67/68 TUIR)
+
+Decisione (priorità scelta dall'utente tra RT/RM/RW: si parte da RT perché deriva
+direttamente da `tax_lot_closures`, appena validato). Modulo puro
+`supabase/functions/_shared/quadro-rt.ts` + edge function `calcola-quadro-rt`
+(JWT-protected, aggregazione per **utente** su tutti i conti — la dichiarazione è unica,
+a differenza del motore lotti che lavora per conto).
+
+- Compensazione **solo entro la stessa `categoria_compensazione`**: 'ordinaria' (26%) e
+  'whitelist' (12,5%) nettano plus/minus dell'anno; se il saldo è positivo, consumano prima
+  le minusvalenze pregresse riportabili (`tax_loss_carryforward`, FIFO per `anno_origine`
+  così si usano quelle più vicine alla scadenza dei 4 anni) prima di calcolare l'imponibile;
+  se negativo, generano un nuovo riporto. 'oicr_non_compensabile': le plusvalenze sono
+  sempre imponibili in pieno (nessuna compensazione, né corrente né pregressa); le
+  minusvalenze non generano alcun riporto (nessuna riga `tax_loss_carryforward`, coerente
+  con lo schema che ammette solo categoria 'ordinaria'/'whitelist' — vedi il punto aperto
+  sopra).
+- Chiusure con `categoria_compensazione IS NULL` (strumento non ancora confermato) sono
+  **escluse** dal calcolo e riportate a parte (`chiusure_non_classificate`): non si include
+  mai nel quadro un dato non confermato.
+- **Sicurezza anni già dichiarati**: rifiuta di calcolare/scrivere per un anno con
+  `dichiarazioni_fiscali.stato='presentata'` — il quadro RT di un anno già presentato non
+  viene mai ricalcolato da questa function.
+- `config_fiscale_parametri` seminato anche per il 2025 (migration `0009`, stessi valori del
+  2026, `verificato=false` — le aliquote 26%/12,5% sono stabili da anni ma non è
+  un'asserzione di correttezza senza conferma).
+- **Calcolato per il 2025** (via SQL diretto, stesso limite JWT delle altre edge function):
+  17 chiusure, tutte plusvalenze (nessuna minus, quindi nessun riporto creato/consumato) —
+  plusvalenza ordinaria imponibile 3.952,21 € (imposta 1.027,57 €), provento OICR imponibile
+  31,34 € (imposta 8,15 €, aliquota ordinaria in assenza di fondi OICR su titoli di stato
+  whitelist nel portafoglio). Imposta RT 2025 totale stimata: **1.035,72 €**. Nessuna
+  minusvalenza pregressa da anni precedenti nel sistema (2023/2024 non ricalcolati per RT,
+  essendo `presentata` — se l'utente ha minusvalenze residue dalle dichiarazioni reali
+  2023/2024 da riportare al 2025, vanno seminate a mano in `tax_loss_carryforward` prima di
+  considerare definitivo il numero sopra).
+
 ## Opzioni: esercizio/assegnazione vs scadenza — casistiche separate
 
 Decisione (a valle del chiarimento dell'utente: "gestire le due casistiche separatamente in

@@ -103,8 +103,39 @@
       quindi `categoria_compensazione='whitelist'` si applicherà dalla prossima
       vendita). Dettagli e limiti (elenco non auto-aggiornante, art. 1-bis) in
       `docs/decisioni-fiscali.md`.
-- [ ] Aggregazione `tax_events` per quadro (RT/RM/RW) da `tax_lot_closures` — non
-      ancora implementata, passo successivo naturale dopo il motore lotti.
+- [x] `tax_instruments.classificazione_confermata` **completata per tutti i 27
+      strumenti** (migration `0010`): 10 non-OICR (azioni/ADR/BDC/opzione/ETC fisici
+      su commodity — GOLD/WBTC/SLVRP/COPAl sono debt security/ETP, non fondi, pur
+      con `subCategory='ETF'` in IBKR) + 15 OICR (fondi UCITS armonizzati) + 2
+      titoli di stato whitelist (OAT/T-bond, già fatti in `0008`). Verificato via
+      web search per i casi meno ovvi (WisdomTree Physical Bitcoin: "UCITS
+      Eligible, non UCITS Compliant", forma legale Debt Security; Amundi Physical
+      Gold: struttura ETC; Carlyle Secured Lending: BDC USA, non UCITS/UE),
+      esteso per pattern agli altri fondi della stessa famiglia di emittenti.
+      `tax_lot_closures.categoria_compensazione` ricalcolato per tutte le 46
+      chiusure esistenti (join diretto su `tax_instruments`, nessun impatto su
+      quantità/importi): **29 ordinaria (4.810,17 €), 17 oicr_non_compensabile
+      (-45,69 €)**, nessuna whitelist (i 2 titoli di stato non hanno ancora
+      vendite).
+- [x] **Quadro RT** (redditi diversi di natura finanziaria, art. 67/68 TUIR) —
+      modulo condiviso `supabase/functions/_shared/quadro-rt.ts` + edge function
+      `calcola-quadro-rt` (JWT-protected per **utente**, non per conto: la
+      dichiarazione è unica su tutti i broker). Compensazione solo entro la
+      stessa `categoria_compensazione`; OICR sempre imponibile in pieno, minus
+      OICR non riportabile (nessuna riga `tax_loss_carryforward` — coerente con
+      lo schema, ma la reale compensabilità delle minus OICR "armonizzati" post
+      D.Lgs 2011/2012 resta un punto aperto per il commercialista, vedi
+      `docs/decisioni-fiscali.md`). Rifiuta di scrivere per anni con
+      `dichiarazioni_fiscali.stato='presentata'`. Calcolato per il 2025 (via SQL
+      diretto, stesso limite JWT delle altre function): **plusvalenza ordinaria
+      imponibile 3.952,21 € (imposta 1.027,57 €), provento OICR imponibile
+      31,34 € (imposta 8,15 €) — imposta totale RT 2025 stimata 1.035,72 €**,
+      nessuna minusvalenza/riporto (tutte le chiusure 2025 sono plusvalenze).
+      Seed `config_fiscale_parametri` per anno 2025 (migration `0009`, stessi
+      valori del 2026, `verificato=false`).
+- [ ] Quadro RM (dividendi/interessi/cedole, credito d'imposta estero) e quadro
+      RW (monitoraggio estero + IVAFE) — non ancora implementati, prossimi passi
+      naturali del quadro fiscale dopo RT.
 - [ ] Riconciliazione: confronto lotti calcolati vs snapshot `OpenPosition` IBKR
       (validazione, non ancora modellata come tabella — vedi nota in
       `docs/ibkr-flex-query-spec.md`)
