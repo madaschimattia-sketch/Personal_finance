@@ -7,6 +7,31 @@
 
 `intestatari`, `domicili`, `documenti_grezzi` (RLS `user_id`/`auth.uid()` dal primo momento).
 
+## Debito di archiviazione — grezzi non ancora caricati su Storage
+
+> Processo permanente, non solo per Fase 1: ogni volta che un file grezzo (XML IBKR,
+> PDF utenze/introiti, ecc.) viene usato per popolare dati normalizzati **senza** essere
+> prima caricato su Storage con la sua riga `documenti_grezzi` (es. perché manca un JWT
+> utente per fare l'upload, o l'ingestione è stata fatta a mano fuori dal flusso normale),
+> va aggiunto a questa lista. Si rimuove una riga solo quando il file è stato
+> effettivamente caricato su Storage e la riga `documenti_grezzi` corrispondente esiste
+> — così l'"archiviazione ordinata dei file di supporto" (principio in
+> [`docs/archiviazione-file-supporto.md`](docs/archiviazione-file-supporto.md)) resta
+> verificabile invece di andare persa in una nota sparsa.
+
+| File locale | Sezione | Conto/contesto | Motivo mancata archiviazione | Path Storage previsto |
+|---|---|---|---|---|
+| `BUDGETING_2023.xml` | investimenti | conto `BUDGETING` (IBKR `U13283246`) | Nessun JWT utente disponibile in sessione per l'upload | `{user_id}/investimenti/ibkr/{conto_id}/2023/flex_backfill_2023.xml` |
+| `BUDGETING_2024.xml` | investimenti | conto `BUDGETING` (IBKR `U13283246`) | Nessun JWT utente disponibile in sessione per l'upload | `{user_id}/investimenti/ibkr/{conto_id}/2024/flex_backfill_2024.xml` |
+| `BUDGETING_2025.xml` | investimenti | conto `BUDGETING` (IBKR `U13283246`) | Nessun JWT utente disponibile in sessione per l'upload | `{user_id}/investimenti/ibkr/{conto_id}/2025/flex_backfill_2025.xml` |
+
+> `user_id` = `1af33662-2dea-49b0-b7d6-ffe2bba781f5`, `conto_id` = `381ed8ac-3540-4ffc-a0a3-99f790ac7d29`.
+> Chiudibile appena esiste un login funzionante: o si ri-esegue il pull via
+> `ibkr-flex-pull` (che archivia da sola), o si caricano questi 3 file a mano su Storage
+> e si inseriscono le righe `documenti_grezzi` corrispondenti (`origine='ibkr_flex'`,
+> `origine_ref` = un identificativo a scelta tipo `backfill-2023`, `conto_id` valorizzato,
+> `periodo_da`/`periodo_a` = inizio/fine anno).
+
 ## Fase 1 — INVESTIMENTI (IBKR) + motore fiscale — in corso
 
 - [x] Schema `conti`, `conto_intestatari`, `movimenti` (migration `0001`)
@@ -30,11 +55,8 @@
       ricorrenti) inserito. **Backfill storico completo dic-2023→dic-2025** da 3
       XML forniti manualmente (`BUDGETING_2023/2024/2025.xml`): 282 `movimenti`,
       210 `tax_movements`, 26 `tax_instruments`, 526 righe `conto_nav_giornaliero`.
-      **Nota**: i 3 XML sorgente NON sono stati archiviati su Storage (nessun JWT
-      disponibile per l'upload) — `documenti_grezzi` non ha righe per questo backfill,
-      a differenza di quanto accadrà per i pull futuri via edge function. Da chiudere
-      quando esiste un flusso di login: o si ri-esegue il pull via function (che
-      archivia correttamente), o si caricano manualmente i 3 file via Storage UI.
+      **I 3 XML sorgente non sono ancora archiviati su Storage** — vedi
+      "Debito di archiviazione" sopra per il dettaglio e la procedura di chiusura.
 - [x] Bug trovato e corretto durante il backfill: i `Trade` con `assetCategory='CASH'`
       (conversioni valutarie EUR/USD di servizio) venivano trattati come acquisto/
       vendita fiscale — ora esclusi da `tax_movements` (restano in `movimenti` come
