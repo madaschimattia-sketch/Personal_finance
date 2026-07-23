@@ -361,8 +361,8 @@ Pipeline separata da IBKR: parsing PDF via Claude API, non Flex Web Service.
       contratto di affitto (rata trimestrale 5.340€ = canone 4.500€ +
       anticipo condominiale 840€, **non** prova di pagamento del singolo
       trimestre — nessun estratto conto disponibile), 2 righe condominio
-      (saldo finale personale esercizio 2023/2024 = 28,29€ ed esercizio
-      2024/2025 = 528,37€, entrambe unità SX33 Ortega B.-Lauricella).
+      (quota a carico conduttore: 1.238,56€ esercizio 2023/24 pro-rata,
+      1.712,73€ esercizio 2024/25 — vedi correzione `0020` sotto).
       **Estrazione fatta a mano** (lettura diretta del contenuto testuale dei
       PDF via Drive), non tramite `estrai-bolletta`: quella edge function
       resta quindi **non ancora validata contro dati reali** (vedi punto
@@ -370,16 +370,23 @@ Pipeline separata da IBKR: parsing PDF via Claude API, non Flex Web Service.
       sono su Drive (`BUDGETING/02_UTENZE/MILANO - MAC MAHON/`) ma non ancora
       copiati su Storage/`documenti_grezzi` — stesso "debito di
       archiviazione" di Fase 1 (nessun JWT utente disponibile in sessione).
-      **Limite noto sul consuntivo condominiale**: la tabella del PDF con la
-      ripartizione per voce (Condominio/Proprietà/Mediazione TRIPODI/
-      Generali/Acqua/Ascensore/Antenna TV/Riscaldamento) risulta poco
-      affidabile dopo l'estrazione testo (colonne disallineate dall'OCR) — in
-      `utenze_bollette` si riporta solo il saldo finale personale
-      dell'esercizio, l'unico numero verificabile con sicurezza. La
-      suddivisione voci a carico inquilino vs proprietà (richiesta
-      dall'utente, criteri art. 9 L.392/1978) non è stata modellata riga per
-      riga per questo motivo — resta un TODO se serve il dettaglio, da fare
-      rileggendo a mano il PDF originale.
+- [x] **Conguaglio condominio risolto con fonte autorevole** (migration `0020`)
+      — il limite noto sul consuntivo condominiale (tabella del PDF
+      amministratore poco affidabile per voce dopo l'OCR) è superato: l'utente
+      ha caricato `Prospetto conguaglio (da inviare).xlsx`, una riconciliazione
+      fatta da lui e **approvata dalla proprietaria**, che separa esplicitamente
+      quota Proprietà (spese straordinarie, escluse) da quota a carico
+      conduttore, per esercizio. Le 2 righe condominio sono state sostituite
+      con gli importi di questo prospetto (`importo` = quota a carico
+      conduttore): **1.238,56€** (2023/24, pro-rata 256/366gg dal 19/01/2024)
+      e **1.712,73€** (2024/25, anno intero) — **totale 2.951,29€**. Il
+      prospetto riporta anche gli acconti versati (2.520€ + 3.360€ = 5.880€,
+      le rate da 840€/trimestre già incluse nel canone affitto) e il
+      **conguaglio complessivo a favore del conduttore: 2.928,71€**, non
+      ancora restituito/compensato — importo significativo, tracciato in nota
+      sulle righe (nessuna colonna dedicata in `utenze_bollette` per
+      acconto/conguaglio, valutare se serve in una fase successiva quando ci
+      sarà più di un caso simile).
 
 ## Fase 3 — INTROITI DA LAVORO
 
