@@ -208,17 +208,31 @@
       ricorrono più opzioni, va rivista la chiave di upsert (oggi solo su `isin`,
       andrebbe estesa a `conid` per evitare righe duplicate ad ogni pull).
 
-### Backlog Fase 1 — motore di calcolo fondi pensione
+### Fondi pensione — motore di calcolo (deduzione versamenti)
 
-> Da progettare **dopo** che il motore lotti IBKR è operativo: dominio fiscale
-> adiacente ma a bassa priorità (dati manuali, non blocca l'ingestione IBKR).
->
-> Copre: deduzione contributi (tetto 5.164,57 €/anno, per `anno_competenza` su
-> `fondo_pensione_versamenti`), imposta sostitutiva sul rendimento (già trattenuta
-> dal fondo — non ricalcolata lato nostro, salvo verifica), tassazione in uscita
-> con aliquota decrescente 15%→9% in base agli anni di iscrizione, distinzione
-> fondi italiani (no RW) vs esteri (`fondi_pensione.is_estero` → RW). Schema
-> tabelle di calcolo non ancora definito.
+- [x] **Quadro RP — deduzione versamenti** (art. 10 c.1 lett. e-bis TUIR) — modulo
+      condiviso `supabase/functions/_shared/fondo-pensione.ts` + edge function
+      `calcola-fondo-pensione` (JWT-protected, per utente su tutti i suoi
+      `fondi_pensione`). `tax_events.quadro` esteso con il valore `'RP'` (migration
+      `0014`). Tetto 5.164,57 €/anno seminato in `config_fiscale_parametri` per
+      2025/2026. Stessa sicurezza anni già dichiarati di RT/RM/RW.
+      **Scope deliberatamente limitato** alla sola deduzione dei versamenti:
+      - l'**imposta sostitutiva sul rendimento** non viene ricalcolata: è già
+        trattenuta dal fondo stesso, non è un adempimento dell'aderente;
+      - la **tassazione in uscita** (aliquota 15%→9% in base agli anni di
+        iscrizione, art. 11 c.6 D.Lgs 252/2005) è implementata come funzione pura
+        pronta all'uso (`aliquotaTassazioneUscita`) ma **non collegata a nessuna
+        edge function**: rilevante solo a un riscatto/rendita effettivo, che non è
+        ancora avvenuto per nessun fondo in questo progetto.
+      - l'eccedenza oltre il tetto (non deducibile) viene calcolata e riportata
+        nell'evento — va tracciata perché esente da tassazione al riscatto (art. 11
+        D.Lgs 252/2005), ma non c'è ancora una tabella dedicata al suo cumulo
+        pluriennale (nessun dato reale su cui costruirla: `fondi_pensione`,
+        `fondo_pensione_versamenti`, `fondo_pensione_posizione` sono **tutte vuote**
+        — l'utente non ha ancora registrato nessun fondo).
+      - Verificato solo con dati sintetici offline (nessun fondo reale registrato
+        finora): tetto rispettato, eccedenza calcolata correttamente, aliquota
+        uscita corretta ai limiti noti (15 anni→15%, 35+ anni→9% pavimento).
 
 ## Frontend — rimandato di proposito
 

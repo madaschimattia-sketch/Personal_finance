@@ -350,3 +350,36 @@ strumento viene saltato** (nessuna scrittura, divergenza riportata in
 `strumenti_saltati_per_divergenza`) — non si sovrascrive mai un anno dichiarato senza controllo
 umano. Validato offline (nessun JWT ancora disponibile per invocare la edge function via HTTP):
 tutte le 29 chiusure 2023/2024 esistenti coincidono esattamente col ricalcolo, zero divergenze.
+
+## Fondi pensione — scope limitato alla deduzione versamenti (quadro RP)
+
+Decisione di scope, non dimenticanza: il dominio fondi pensione (D.Lgs 252/2005) ha tre
+componenti fiscali distinte, ma solo la prima è stata implementata.
+
+- **Deduzione versamenti** (quadro RP, art. 10 c.1 lett. e-bis TUIR) — **implementata**:
+  modulo `fondo-pensione.ts` + edge function `calcola-fondo-pensione`. Somma i versamenti
+  `deducibile=true` per `anno_competenza`, applica il tetto 5.164,57 €/anno
+  (`config_fiscale_parametri`), riporta l'eccedenza eventuale. `tax_events.quadro` esteso
+  con `'RP'` (migration `0014`) — `aliquota_pct` sempre `null` e `imposta_eur` sempre `0`:
+  una deduzione riduce la base imponibile IRPEF all'aliquota marginale della persona, che
+  non è modellata in questo progetto (servirebbe l'intera dichiarazione, non solo la
+  previdenza complementare) — l'evento riporta solo l'importo dedotto, non un risparmio
+  d'imposta calcolato.
+- **Imposta sostitutiva sul rendimento** — **non implementata, per design**: è già
+  trattenuta dal fondo stesso (obbligo dell'ente gestore, non dell'aderente), quindi non
+  richiede alcun calcolo o adempimento da parte nostra.
+- **Tassazione in uscita** (riscatto/rendita, aliquota 15%→9% in base agli anni di
+  iscrizione, art. 11 c.6 D.Lgs 252/2005) — funzione pura `aliquotaTassazioneUscita`
+  implementata e pronta all'uso, ma **non collegata a nessuna edge function**: è rilevante
+  solo al momento di un riscatto/rendita effettivo, e nessun fondo in questo progetto è
+  arrivato a quel punto (anzi, nessun fondo è ancora stato registrato — vedi sotto).
+- L'**eccedenza non deducibile** (versamenti oltre il tetto) viene calcolata e riportata
+  nella nota dell'evento perché fiscalmente rilevante in futuro (è esente da tassazione al
+  riscatto, art. 11 D.Lgs 252/2005) — ma non esiste ancora una tabella dedicata al suo
+  cumulo pluriennale: costruirla ora, senza nessun dato reale di riferimento, avrebbe
+  significato indovinare uno schema piuttosto che progettarlo sui dati reali.
+- **Stato dei dati**: `fondi_pensione`, `fondo_pensione_versamenti` e
+  `fondo_pensione_posizione` sono **tutte vuote** — l'utente non ha ancora registrato
+  nessun fondo pensione in questo sistema. Il motore è stato validato solo con dati
+  sintetici offline (tetto rispettato, eccedenza corretta, aliquota di uscita corretta ai
+  limiti noti 15/35 anni). Andrà rivalidato contro un caso reale alla prima registrazione.
