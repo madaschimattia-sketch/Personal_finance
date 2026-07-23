@@ -194,10 +194,28 @@
       Quadro RT 2025 aggiornato di conseguenza (imposta totale invariata 1.035,72 €,
       ma riporto minusvalenze whitelist corretto a 600,90 € invece di 103,74 €).
       Dettagli completi in `docs/decisioni-fiscali.md`.
-      **Resta un limite noto**: la riconciliazione copre solo le QUANTITÀ, non
-      l'obbligo di monitoraggio RW riga per riga (ISIN/paese/valore per prodotto
-      estero) — quello richiederebbe una vista/export dedicata da
-      `posizioni_aperte_ibkr`, non ancora costruita.
+      **Limite noto, chiuso dall'item successivo**: la riconciliazione copre solo le
+      QUANTITÀ, non l'obbligo di monitoraggio RW riga per riga — vedi "Quadro RW —
+      dettaglio riga per riga" sotto.
+- [x] **Quadro RW — dettaglio riga per riga** (monitoraggio valutario, distinto
+      dall'IVAFE già calcolata sopra) — modulo condiviso
+      `supabase/functions/_shared/quadro-rw-dettaglio.ts` (`costruisciDettaglioRW`) +
+      edge function `calcola-quadro-rw-dettaglio` (JWT-protected, per conto,
+      reporting puro: non scrive `tax_events`). Confronta l'ultimo snapshot
+      `posizioni_aperte_ibkr` ≤ 31/12 anno precedente con l'ultimo entro l'anno
+      richiesto. **Merge per ISIN, non conid**: scoperto un ETC reale (WisdomTree
+      Physical Copper, ISIN `GB00B15KXQ89`) con conid diverso tra fine 2024
+      (`41015909`) e fine 2025 (`42921905`) — un merge per conid avrebbe spezzato la
+      posizione continua in due righe fittizie; fix applicato sia al modulo puro sia
+      al lookup paese emittente nell'edge function (ISIN prima, conid come fallback
+      per strumenti senza ISIN). Backfillato lo snapshot `OpenPosition` di fine 2024
+      mancante (10 righe da `BUDGETING_2024.xml`, 28 righe totali in
+      `posizioni_aperte_ibkr`; il 2023 non ne ha, conto appena aperto). Calcolato per
+      il 2025: **19 strumenti con posizione a cavallo/entro l'anno** (9 tutto l'anno,
+      9 acquistati in corso d'anno, 1 ceduto) **+ 4 casi limite** comprati e venduti
+      interamente nel 2025 (T-bond USA, WBTC, NVDA, LVO) segnalati in
+      `strumenti_attivita_non_in_snapshot` per revisione col commercialista. Dettagli
+      in `docs/decisioni-fiscali.md`.
 - [x] **Trasferimenti titoli IN** (`transfer_titoli`) — `mapTransfer` (ibkr-flex-parse.ts)
       ora restituisce anche un `TaxMovementRow` sintetico (`tipo='acquisto'`) quando
       `direction='IN'` e c'è quantità, usando il campo `cost` del `Transfer` come base

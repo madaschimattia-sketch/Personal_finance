@@ -268,10 +268,10 @@ calcolati prima di scoprire il secondo bug. RM e RW non sono impattati (le cedol
 erano già registrate correttamente; il NAV aggregato di `conto_nav_giornaliero`,
 fonte di RW, viene da una sezione XML diversa e non soggetta allo stesso bug).
 
-**Limite noto rimasto**: la riconciliazione copre solo le *quantità* aperte per
+**Limite noto, ora chiuso**: la riconciliazione copriva solo le *quantità* aperte per
 strumento, non l'obbligo di monitoraggio RW riga per riga (ISIN/paese/valore per ogni
-prodotto estero) richiesto dal quadro RW — quello richiederebbe una vista/export
-dedicata da `posizioni_aperte_ibkr`, non ancora costruita.
+prodotto estero) richiesto dal quadro RW — vedi sezione "Quadro RW — dettaglio riga
+per riga" più sotto, che ha colmato il gap.
 
 ## Quadro RW — IVAFE (art. 19 D.L. 201/2011)
 
@@ -308,6 +308,42 @@ naturale di monitoraggio, `tax_events.conto_id` valorizzato invece di `null`).
   IVAFE fissa; titoli 96.813,73 € al 31/12/2025 (92.859,33 € azioni/ETF + 3.954,40 €
   obbligazioni), 365/365 giorni di possesso (conto aperto da fine 2023, quindi tutto
   l'anno) → IVAFE proporzionale 193,63 €. **Imposta RW 2025 totale: 193,63 €**.
+
+## Quadro RW — dettaglio riga per riga (monitoraggio valutario)
+
+Colma il gap lasciato da IVAFE (sopra) e dalla riconciliazione posizioni: l'elenco
+"un prodotto estero per riga" con ISIN/paese/valore a inizio e fine periodo, richiesto
+dal monitoraggio fiscale del quadro RW. Modulo puro
+`supabase/functions/_shared/quadro-rw-dettaglio.ts` (`costruisciDettaglioRW`) + edge
+function `calcola-quadro-rw-dettaglio` (JWT-protected, per conto). Confronta l'ultimo
+snapshot `posizioni_aperte_ibkr` disponibile ≤ 31/12 dell'anno precedente (inizio
+periodo) con l'ultimo snapshot disponibile entro l'anno richiesto (fine periodo). Puro
+strumento di reporting: non scrive `tax_events`, non soggetto alla sicurezza anni già
+dichiarati.
+
+- **Chiave di merge: ISIN, non conid.** Scoperto durante la verifica su dati reali: un
+  ETC (WisdomTree Physical Copper, ISIN `GB00B15KXQ89`) ha conid diverso tra lo snapshot
+  di fine 2024 (`41015909`) e quello di fine 2025 (`42921905`) — IBKR può riassegnare il
+  conid alla stessa posizione da un anno all'altro. Un merge per solo conid avrebbe
+  spezzato una posizione continua in due righe fittizie (una "ceduta" a fine 2024, una
+  "acquisita" a inizio 2025). Fix: si fa merge per ISIN quando presente, conid solo come
+  fallback per strumenti senza ISIN (opzioni). Stesso fix applicato al lookup del paese
+  emittente nell'edge function (prima ISIN, poi conid).
+- **Limite noto**: cattura solo gli strumenti presenti in almeno uno dei due snapshot.
+  Uno strumento comprato **e** venduto interamente durante l'anno non compare in
+  nessuno dei due — viene individuato a parte confrontando i `tax_movements`
+  dell'anno con gli ISIN/conid presenti negli snapshot, e riportato in
+  `strumenti_attivita_non_in_snapshot` per revisione manuale (se un possesso breve
+  infrannuale richieda comunque una riga RW non è del tutto univoco in norma).
+- **Backfill dati**: mancava lo snapshot `OpenPosition` di fine 2024 (ingerito solo
+  quello di fine 2025 dal pull `ibkr-flex-pull`) — estratto manualmente da
+  `BUDGETING_2024.xml` (10 righe, `report_date=2024-12-31`) e inserito in
+  `posizioni_aperte_ibkr` (28 righe totali in tabella). Il file 2023 non ha righe
+  `OpenPosition` (conto appena aperto, nessuna posizione al momento del report).
+- **Calcolato per il 2025**: 19 strumenti con posizione a cavallo o entro l'anno (9
+  detenuti tutto l'anno, 9 acquistati durante l'anno, 1 ceduto durante l'anno) + 4 casi
+  limite comprati e venduti interamente nel 2025 (T-bond USA `US91282CBQ33`, WBTC, NVDA,
+  LVO) da valutare col commercialista.
 
 ## Opzioni: esercizio/assegnazione vs scadenza — casistiche separate
 
