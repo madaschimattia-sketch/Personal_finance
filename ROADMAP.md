@@ -149,11 +149,25 @@
       82,49 €, imposta netta 130,12 €), cedole whitelist imponibile 188,95 €
       (imposta 23,62 €, nessuna ritenuta) — **imposta totale RM 2025 stimata
       153,74 €**. Dettagli in `docs/decisioni-fiscali.md`.
-- [ ] Quadro RW (monitoraggio estero + IVAFE) — prossimo passo naturale del quadro
-      fiscale dopo RT/RM.
+- [x] **Quadro RW — IVAFE** (imposta, non il monitoraggio di dettaglio riga per riga)
+      — modulo condiviso `supabase/functions/_shared/quadro-rw.ts` + edge function
+      `calcola-quadro-rw` (JWT-protected, **per conto**, a differenza di RT/RM: ogni
+      conto estero è l'unità naturale di monitoraggio, `tax_events.conto_id`
+      valorizzato). Due componenti: cash a regime fisso (soglia giacenza media, non
+      prorata per giorni di possesso — assunzione da confermare) + titoli a regime
+      proporzionale 0,2% sul valore all'ultima data disponibile nell'anno, prorato
+      per giorni di possesso (`conto_nav_giornaliero`, non richiede lo snapshot
+      `OpenPosition` per singolo strumento). **Non copre l'obbligo di monitoraggio**
+      (elenco riga per riga con ISIN/paese per ogni prodotto estero): richiederebbe
+      l'ingestione di `OpenPosition`, non ancora fatta — vedi item sotto. Calcolato
+      per il 2025: giacenza media cash 2.333,42 € sotto soglia 5.000 € → nessuna
+      IVAFE fissa; titoli 96.813,73 € al 31/12, 365/365 giorni → **IVAFE
+      proporzionale 193,63 €**. **Imposta totale RW 2025: 193,63 €**. Dettagli in
+      `docs/decisioni-fiscali.md`.
 - [ ] Riconciliazione: confronto lotti calcolati vs snapshot `OpenPosition` IBKR
       (validazione, non ancora modellata come tabella — vedi nota in
-      `docs/ibkr-flex-query-spec.md`)
+      `docs/ibkr-flex-query-spec.md`). Servirebbe anche per compilare il dettaglio
+      RW riga per riga (ISIN/paese/valore per prodotto estero), non solo l'imposta.
 - [ ] Trasferimenti titoli (`transfer_titoli`): il costo di carico per lotti trasferiti
       IN non è ancora seminato nel motore lotti — nessuno nel backfill 2023-2025
       (solo `transfer_cassa` osservati), ma da gestire se ricorre in futuro.

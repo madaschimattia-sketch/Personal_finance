@@ -187,6 +187,42 @@ edge function `calcola-quadro-rm` (JWT-protected, per utente su tutti i conti, c
   withholding, trattato applicato correttamente da IBKR a monte). **Imposta RM 2025 totale
   stimata: 153,74 €**.
 
+## Quadro RW — IVAFE (art. 19 D.L. 201/2011)
+
+Decisione di scope: il quadro RW ha due obblighi distinti — (1) il **monitoraggio
+fiscale/valutario** (elenco riga per riga di ogni prodotto estero, con ISIN/paese/valore a
+inizio e fine periodo di detenzione) e (2) l'**IVAFE**, l'imposta vera e propria sul valore
+delle attività finanziarie estere. Qui si implementa **solo l'IVAFE**: il monitoraggio di
+dettaglio richiederebbe lo snapshot posizioni di fine anno per singolo strumento
+(`OpenPosition` di IBKR Flex), non ancora ingerito in questo progetto (stesso gap già
+segnalato in ROADMAP per la riconciliazione lotti). Modulo puro
+`supabase/functions/_shared/quadro-rw.ts` + edge function `calcola-quadro-rw`
+(JWT-protected, **per conto** — a differenza di RT/RM, qui ogni conto estero è l'unità
+naturale di monitoraggio, `tax_events.conto_id` valorizzato invece di `null`).
+
+- **Componente cash** (regime fisso, decisione già presa altrove in questo documento):
+  se la giacenza media annua (`v_giacenza_media_cash_annua`) supera la soglia
+  (`ivafe_cash_soglia_giacenza_media_eur`), si applica l'importo fisso
+  (`ivafe_cash_fissa_eur`), **non prorato** per giorni di possesso nell'anno — assunzione
+  (il regime fisso è concepito come un bollo forfettario annuo, non un'imposta
+  proporzionale al tempo), da confermare col commercialista se il conto viene aperto o
+  chiuso a metà anno.
+- **Componente titoli** (azioni/obbligazioni/ETF/opzioni/tutto il non-cash): regime
+  proporzionale 2 per mille (0,2%) sul valore all'**ultima data disponibile nell'anno**
+  in `conto_nav_giornaliero` (idealmente 31/12), **prorato per giorni di possesso**
+  nell'anno (art. 19 comma 18 D.L. 201/2011) — calcolato come giorni tra
+  `max(1 gennaio anno, prima data mai osservata per il conto)` e l'ultima data
+  disponibile nell'anno, su 365/366 giorni totali.
+- **Limite noto**: usare "ultima data disponibile nell'anno" come proxy di "data di
+  chiusura conto" è un'approssimazione basata sui dati — non distingue un conto
+  effettivamente chiuso a metà anno da un conto per cui semplicemente non abbiamo ancora
+  ingerito i dati fino al 31/12. Per il 2025 non è un problema (dati completi fino al
+  31/12), ma va tenuto a mente se in futuro un conto viene davvero chiuso in corso d'anno.
+- **Calcolato per il 2025**: giacenza media cash 2.333,42 € (sotto soglia 5.000 €) → nessuna
+  IVAFE fissa; titoli 96.813,73 € al 31/12/2025 (92.859,33 € azioni/ETF + 3.954,40 €
+  obbligazioni), 365/365 giorni di possesso (conto aperto da fine 2023, quindi tutto
+  l'anno) → IVAFE proporzionale 193,63 €. **Imposta RW 2025 totale: 193,63 €**.
+
 ## Opzioni: esercizio/assegnazione vs scadenza — casistiche separate
 
 Decisione (a valle del chiarimento dell'utente: "gestire le due casistiche separatamente in
