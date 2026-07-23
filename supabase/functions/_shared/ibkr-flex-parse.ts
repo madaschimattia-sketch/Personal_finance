@@ -39,9 +39,12 @@ export interface ParsedFlexStatement {
   // che distingue i tre casi — solo 'Expiration' segue il trattamento standalone del
   // motore lotti, 'Exercise'/'Assignment' vanno segnalati (vedi mapOptionEvent).
   optionEvents: Record<string, unknown>[];
+  // Snapshot posizioni aperte a fine periodo — usato SOLO per riconciliazione con
+  // tax_lots (motore lotti), non e' input del calcolo fiscale.
+  openPositions: Record<string, unknown>[];
   // Sezioni presenti nell'XML ma NON ancora normalizzate in tabelle dedicate
   // (vedi docs/ibkr-flex-query-spec.md) — solo conteggiate per visibilita'.
-  nonGestite: { openPositions: number; interestAccruals: number; corporateActions: number };
+  nonGestite: { interestAccruals: number; corporateActions: number };
 }
 
 export function parseFlexXml(xml: string): ParsedFlexStatement {
@@ -59,8 +62,8 @@ export function parseFlexXml(xml: string): ParsedFlexStatement {
     securities: asArray(stmt.SecuritiesInfo?.SecurityInfo),
     nav: asArray(stmt.EquitySummaryInBase?.EquitySummaryByReportDateInBase),
     optionEvents: asArray(stmt.OptionEAE?.OptionEAE),
+    openPositions: asArray(stmt.OpenPositions?.OpenPosition),
     nonGestite: {
-      openPositions: asArray(stmt.OpenPositions?.OpenPosition).length,
       interestAccruals: asArray(stmt.InterestAccruals?.InterestAccrualsCurrency).length,
       corporateActions: asArray(stmt.CorporateActions?.CorporateAction).length,
     },
@@ -330,5 +333,31 @@ export function mapNavRow(n: Record<string, unknown>, contoId: string, userId: s
     commodities_eur: num(n.commodities),
     crypto_eur: num(n.crypto),
     total_eur: num(n.total),
+  };
+}
+
+// OpenPosition -> snapshot per riconciliazione con tax_lots (motore lotti). markPrice/
+// positionValue/costBasisMoney sono in valuta nativa nell'XML: qui convertiti in EUR via
+// fxRateToBase, stessa convenzione di mapTrade/mapCashTransaction.
+export function mapOpenPosition(p: Record<string, unknown>, contoId: string, userId: string) {
+  const fx = num(p.fxRateToBase) || 1;
+  return {
+    conto_id: contoId,
+    user_id: userId,
+    conid: String(p.conid ?? ""),
+    isin: strOrNull(p.isin),
+    symbol: strOrNull(p.symbol),
+    asset_category: strOrNull(p.assetCategory),
+    sub_category: strOrNull(p.subCategory),
+    report_date: ibkrDate(p.reportDate as string),
+    position: num(p.position),
+    mark_price: num(p.markPrice) * fx,
+    position_value_eur: num(p.positionValue) * fx,
+    cost_basis_price: num(p.costBasisPrice) * fx,
+    cost_basis_money_eur: num(p.costBasisMoney) * fx,
+    fifo_pnl_unrealized_eur: num(p.fifoPnlUnrealized) * fx,
+    side: strOrNull(p.side),
+    valuta: String(p.currency ?? "EUR"),
+    fx_rate: fx,
   };
 }

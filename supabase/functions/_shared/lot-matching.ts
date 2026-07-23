@@ -90,7 +90,21 @@ export function calcolaLotti(
   info: InstrumentTaxInfo,
   lottiEsistenti?: Map<string, string>, // acquisto_movement_id -> id lotto gia' presente in DB
 ): EngineResult {
-  const ordinati = [...movimenti].sort((a, b) => a.data.localeCompare(b.data) || a.id.localeCompare(b.id));
+  // Tie-break per movimenti sullo stesso giorno solare: 'vendita' prima di 'acquisto'.
+  // La tabella tax_movements non ha granularita' oraria (solo date), quindi non possiamo
+  // sapere il vero ordine cronologico infragiornaliero — ma trattare le vendite come
+  // "prima" nello stesso giorno e' la scelta piu' prudente/comune (evita di usare un
+  // acquisto dello stesso giorno per coprire una vendita precedente, scenario tipico
+  // "vendo poi reinvesto"). Scoperto un caso reale (OAT, riconciliazione OpenPosition,
+  // vedi migration 0013) dove il vecchio tie-break per id casuale avrebbe allocato una
+  // vendita su un acquisto dello stesso giorno eseguito DOPO, in modo economicamente
+  // scorretto rispetto all'orario reale nell'XML.
+  const ordinati = [...movimenti].sort((a, b) => {
+    const perData = a.data.localeCompare(b.data);
+    if (perData !== 0) return perData;
+    if (a.tipo !== b.tipo) return a.tipo === "vendita" ? -1 : 1;
+    return a.id.localeCompare(b.id);
+  });
 
   const lots: LotOutput[] = [];
   const closures: ClosureOutput[] = [];

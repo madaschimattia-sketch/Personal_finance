@@ -187,6 +187,92 @@ edge function `calcola-quadro-rm` (JWT-protected, per utente su tutti i conti, c
   withholding, trattato applicato correttamente da IBKR a monte). **Imposta RM 2025 totale
   stimata: 153,74 €**.
 
+## Riconciliazione OpenPosition — 2 bug reali scoperti e corretti
+
+Contesto: costruendo la riconciliazione (confronto tra `tax_lots` calcolati e lo snapshot
+`OpenPosition` di IBKR a fine periodo) sono emersi due problemi strutturali pre-esistenti,
+non ipotetici — hanno causato perdita silenziosa di dati reali nel backfill 2023-2025.
+
+### Bug 1 — collisione transactionID Trade/CashTransaction (migration `0011`, `0012`, `0013`)
+
+IBKR riusa lo **stesso `transactionID`** sia per il `Trade` di vendita di un'obbligazione
+sia per la `CashTransaction` "Bond Interest Received" collegata (il rateo di accrued
+interest liquidato al momento della vendita, quando questa avviene tra due cedole). La
+chiave naturale usata finora, `(conto_id, ibkr_transaction_id)`, non distingue i due:
+durante l'upsert di `ibkr-flex-pull` (Trade processati prima, CashTransaction dopo nello
+stesso loop) la seconda scrittura sovrascriveva silenziosamente la prima, facendo
+sparire la vendita dai nostri dati pur avendola effettivamente eseguita.
+
+- Scoperto perché **T-bond USA** (venduto per intero il 2025-09-30, 4.000 unità) e
+  **OAT francese** (4 vendite: -9.000 il 2024-11-07, -6.000/-10.000/-4.000 il
+  2025-05-19) risultavano ancora "aperti" nei nostri `tax_lots` con quantità molto
+  superiori a quelle reali riportate da `OpenPosition` IBKR al 31/12/2025 (45.000 vs
+  16.000 per l'OAT, l'intera posizione vs 0 per il T-bond).
+- Fix strutturale: indice unique esteso da `(conto_id, ibkr_transaction_id)` a
+  `(conto_id, ibkr_transaction_id, tipo)` su `movimenti` e `tax_movements` — `tipo`
+  disambigua perché un Trade e la sua CashTransaction collegata hanno sempre `tipo`
+  diverso (`trade` vs `dividendo`/`interessi`/`cedola`/...). Anche il lookup
+  `movimento_id` in `ibkr-flex-pull` (usato per collegare `tax_movements` alla riga
+  `movimenti` gemella) è stato corretto per usare la stessa chiave composta
+  `(transactionID, movimento.tipo)`, non solo `transactionID` — altrimenti la stessa
+  ambiguità si sarebbe ripresentata a ogni pull futuro.
+- Le 4 vendite OAT mancanti sono state recuperate dai file XML originali (ancora
+  disponibili in locale) e reinserite (migration `0012`), poi ricalcolato manualmente
+  il LIFO per l'intero strumento (migration `0013` — vedi anche il bug 2 sotto). La
+  vendita del 2024-11-07 cade in un anno **già dichiarato**: corretto solo il ledger
+  sottostante (`movimenti`/`tax_movements`/`tax_lots`/`tax_lot_closures`), **nessun
+  `tax_events` toccato per il 2024** (RT/RM/RW non vengono mai calcolati per un anno
+  con `dichiarazioni_fiscali.stato='presentata'` da questo sistema — e la
+  dichiarazione 2024 effettivamente presentata dall'utente è stata preparata sui
+  propri estratti conto IBKR, non con questo strumento, quindi presumibilmente già
+  corretta di suo: qui si allinea solo la nostra base dati storica).
+- Validazione indipendente: il plus/minus ricalcolato per la chiusura del 2024-11-07
+  (-59,85 €) coincide **esattamente** con il `fifoPnlRealized` che IBKR stesso riporta
+  per quel trade nell'XML originale — buona conferma che la metodologia (costo/ricavo
+  a prezzo pulito, cedole maturate escluse e tassate a parte come reddito di
+  capitale) sia corretta.
+
+### Bug 2 — tie-break non cronologico nel motore lotti per movimenti stesso giorno
+
+Ricalcolando manualmente l'OAT è emerso un secondo problema, questa volta nel motore
+lotti stesso: `tax_movements.data` ha solo granularità di giorno (nessun orario), e il
+vecchio ordinamento `lot-matching.ts` usava l'`id` (UUID casuale) come tie-break tra
+movimenti della stessa data. Il 2025-05-19 l'OAT ha avuto 3 vendite (04:42-04:42
+nell'XML originale) **seguite** da un acquisto (05:24, stesso giorno): il tie-break per
+id avrebbe potuto (a seconda dell'ordine alfabetico degli UUID coinvolti) allocare una
+vendita sull'acquisto dello stesso giorno eseguito DOPO — economicamente scorretto,
+perché quelle unità non erano ancora possedute al momento della vendita.
+
+- Fix: tie-break a parità di data ora mette sempre `vendita` prima di `acquisto`
+  (`lot-matching.ts`, deployato `calcola-lotti-fiscali` v3) — scelta prudente in
+  assenza di un vero timestamp: tratta ogni "vendo e poi reinvesto lo stesso giorno"
+  nel modo più comune, evitando di usare fondi non ancora disponibili all'atto della
+  vendita.
+- Verificato a mano (script Node offline) che il ricalcolo con l'ordine cronologico
+  reale (vendite prima dell'acquisto) dà: lotto 2024-11-12 (8.000 unità) mai toccato,
+  lotto 2025-01-08 e lotto 2025-03-06 chiusi dalle 3 vendite, nuovo lotto 2025-05-19
+  (l'acquisto) aperto — risultato: 8.000 + 8.000 = 16.000 unità aperte a fine anno,
+  che coincide esattamente con `OpenPosition` IBKR.
+
+### Esito della riconciliazione
+
+Dopo i due fix: **18/18 strumenti concordanti, zero divergenze** tra `tax_lots` e
+`posizioni_aperte_ibkr` al 31/12/2025 (edge function `calcola-riconciliazione-posizioni`,
+verificato via query diretta in attesa di un JWT per l'invocazione HTTP reale).
+
+Impatto sul quadro RT 2025: imposta totale **invariata** (1.035,72 €, le minusvalenze
+whitelist non compensano nulla nell'anno stesso, solo riporto) ma il riporto
+minusvalenze whitelist ora è corretto a **600,90 €** (497,16 € dalle vendite OAT +
+103,74 € dalla vendita T-bond, prima mancanti) invece dei 103,74 € provvisori
+calcolati prima di scoprire il secondo bug. RM e RW non sono impattati (le cedole
+erano già registrate correttamente; il NAV aggregato di `conto_nav_giornaliero`,
+fonte di RW, viene da una sezione XML diversa e non soggetta allo stesso bug).
+
+**Limite noto rimasto**: la riconciliazione copre solo le *quantità* aperte per
+strumento, non l'obbligo di monitoraggio RW riga per riga (ISIN/paese/valore per ogni
+prodotto estero) richiesto dal quadro RW — quello richiederebbe una vista/export
+dedicata da `posizioni_aperte_ibkr`, non ancora costruita.
+
 ## Quadro RW — IVAFE (art. 19 D.L. 201/2011)
 
 Decisione di scope: il quadro RW ha due obblighi distinti — (1) il **monitoraggio

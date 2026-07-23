@@ -11,7 +11,7 @@
 //
 // NON fa parte di questa function (passo successivo, separato):
 //   - matching lotti (LIFO/media ponderata) -> tax_lots/tax_lot_closures/tax_events
-//   - normalizzazione di OpenPosition/InterestAccrualsCurrency/OptionEAE/CorporateActions
+//   - normalizzazione di InterestAccrualsCurrency/CorporateActions
 //     (contate ma non persistite — vedi ParsedFlexStatement.nonGestite)
 import { corsHeaders } from "../_shared/cors.ts";
 import { createAdminClient } from "../_shared/supabase-admin.ts";
@@ -24,6 +24,7 @@ import {
   mapSecurityInfo,
   mapNavRow,
   mapOptionEventiPerTradeId,
+  mapOpenPosition,
   type MovimentoRow,
   type TaxMovementRow,
 } from "../_shared/ibkr-flex-parse.ts";
@@ -140,7 +141,13 @@ async function processConto(
 
     // 2) movimenti (trade + cash + transfer) + subset fiscale
     const movimenti: MovimentoRow[] = [];
-    const taxMovements: (TaxMovementRow & { movimento_transaction_id: string | null })[] = [];
+    // movimento_transaction_id + movimento_tipo identificano insieme la riga movimenti
+    // gemella: ibkr_transaction_id da solo NON basta perche' IBKR lo riusa tra un Trade
+    // (vendita obbligazione) e la CashTransaction "Bond Interest Received" collegata
+    // (rateo accrued interest liquidato alla vendita) — bug scoperto durante la
+    // riconciliazione OpenPosition (vedi migration 0011). movimento.tipo ('trade' vs
+    // dividendo/interessi/ritenuta/...) disambigua correttamente.
+    const taxMovements: (TaxMovementRow & { movimento_transaction_id: string | null; movimento_tipo: string })[] = [];
 
     // OptionEAE.transactionType (Exercise/Assignment/Expiration) per tradeID: solo
     // 'expiration' e' trattato come chiusura standalone corretta dal motore lotti,
@@ -153,14 +160,14 @@ async function processConto(
       movimenti.push(movimento);
       if (taxMovement) {
         const evento = taxMovement.ibkr_trade_id ? eventiOpzionePerTradeId.get(taxMovement.ibkr_trade_id) ?? null : null;
-        taxMovements.push({ ...taxMovement, evento_opzione: evento, movimento_transaction_id: movimento.ibkr_transaction_id });
+        taxMovements.push({ ...taxMovement, evento_opzione: evento, movimento_transaction_id: movimento.ibkr_transaction_id, movimento_tipo: movimento.tipo });
       }
     }
     for (const c of parsed.cash) {
       const { movimento, taxMovement } = mapCashTransaction(c, conto.id, conto.user_id);
       movimenti.push(movimento);
       if (taxMovement) {
-        taxMovements.push({ ...taxMovement, movimento_transaction_id: movimento.ibkr_transaction_id });
+        taxMovements.push({ ...taxMovement, movimento_transaction_id: movimento.ibkr_transaction_id, movimento_tipo: movimento.tipo });
       }
     }
     for (const t of parsed.transfers) {
@@ -171,27 +178,27 @@ async function processConto(
     if (movimentiConDoc.length > 0) {
       const { error } = await admin
         .from("movimenti")
-        .upsert(movimentiConDoc, { onConflict: "conto_id,ibkr_transaction_id", ignoreDuplicates: false });
+        .upsert(movimentiConDoc, { onConflict: "conto_id,ibkr_transaction_id,tipo", ignoreDuplicates: false });
       if (error) throw new Error(`Upsert movimenti fallito: ${error.message}`);
     }
 
     if (taxMovements.length > 0) {
       const { data: movRows, error: movErr } = await admin
         .from("movimenti")
-        .select("id, ibkr_transaction_id")
+        .select("id, ibkr_transaction_id, tipo")
         .eq("conto_id", conto.id)
         .not("ibkr_transaction_id", "is", null);
       if (movErr) throw new Error(`Lettura movimenti fallita: ${movErr.message}`);
-      const movimentoIdByTxId = new Map<string, string>((movRows ?? []).map((r) => [r.ibkr_transaction_id as string, r.id as string]));
+      const movimentoIdByTxIdTipo = new Map<string, string>((movRows ?? []).map((r) => [`${r.ibkr_transaction_id}|${r.tipo}`, r.id as string]));
 
-      const taxMovementRows = taxMovements.map(({ movimento_transaction_id, isin, ...rest }) => ({
+      const taxMovementRows = taxMovements.map(({ movimento_transaction_id, movimento_tipo, isin, ...rest }) => ({
         ...rest,
-        movimento_id: movimento_transaction_id ? movimentoIdByTxId.get(movimento_transaction_id) ?? null : null,
+        movimento_id: movimento_transaction_id ? movimentoIdByTxIdTipo.get(`${movimento_transaction_id}|${movimento_tipo}`) ?? null : null,
         instrument_id: isin ? instrumentIdByIsin.get(isin) ?? null : null,
       }));
       const { error } = await admin
         .from("tax_movements")
-        .upsert(taxMovementRows, { onConflict: "conto_id,ibkr_transaction_id", ignoreDuplicates: false });
+        .upsert(taxMovementRows, { onConflict: "conto_id,ibkr_transaction_id,tipo", ignoreDuplicates: false });
       if (error) throw new Error(`Upsert tax_movements fallito: ${error.message}`);
     }
 
@@ -202,6 +209,17 @@ async function processConto(
         .from("conto_nav_giornaliero")
         .upsert(navRows, { onConflict: "conto_id,report_date", ignoreDuplicates: false });
       if (error) throw new Error(`Upsert conto_nav_giornaliero fallito: ${error.message}`);
+    }
+
+    // 4) OpenPosition — snapshot per riconciliazione con tax_lots (vedi calcola-riconciliazione-lotti)
+    const openPositionRows = parsed.openPositions
+      .map((p) => mapOpenPosition(p, conto.id, conto.user_id))
+      .filter((p) => p.report_date && p.conid);
+    if (openPositionRows.length > 0) {
+      const { error } = await admin
+        .from("posizioni_aperte_ibkr")
+        .upsert(openPositionRows, { onConflict: "conto_id,conid,report_date", ignoreDuplicates: false });
+      if (error) throw new Error(`Upsert posizioni_aperte_ibkr fallito: ${error.message}`);
     }
 
     await admin
@@ -220,6 +238,7 @@ async function processConto(
         transfers: parsed.transfers.length,
         instruments: instrumentRows.length,
         nav: navRows.length,
+        open_positions: openPositionRows.length,
       },
       non_gestite: parsed.nonGestite,
     };

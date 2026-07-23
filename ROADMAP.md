@@ -164,10 +164,40 @@
       IVAFE fissa; titoli 96.813,73 € al 31/12, 365/365 giorni → **IVAFE
       proporzionale 193,63 €**. **Imposta totale RW 2025: 193,63 €**. Dettagli in
       `docs/decisioni-fiscali.md`.
-- [ ] Riconciliazione: confronto lotti calcolati vs snapshot `OpenPosition` IBKR
-      (validazione, non ancora modellata come tabella — vedi nota in
-      `docs/ibkr-flex-query-spec.md`). Servirebbe anche per compilare il dettaglio
-      RW riga per riga (ISIN/paese/valore per prodotto estero), non solo l'imposta.
+- [x] **Riconciliazione posizioni vs OpenPosition IBKR** — nuova tabella
+      `posizioni_aperte_ibkr` (migration `0011`), ingerita da `ibkr-flex-pull` (v7,
+      `mapOpenPosition`) insieme a trades/cash/NAV. Modulo condiviso
+      `supabase/functions/_shared/riconciliazione-posizioni.ts` + edge function
+      `calcola-riconciliazione-posizioni` (JWT-protected, validazione — non scrive
+      `tax_events`, non soggetta alla sicurezza anni già dichiarati). Confronta le
+      quantità aperte per strumento (`tax_lots` vs ultima `posizioni_aperte_ibkr`).
+      **Ha scovato 2 bug reali** nel backfill storico, entrambi dalla stessa causa:
+      IBKR riusa lo stesso `transactionID` tra un `Trade` (vendita obbligazione) e la
+      `CashTransaction` "Bond Interest Received" collegata (rateo liquidato alla
+      vendita) — la chiave `(conto_id, ibkr_transaction_id)` non bastava, l'upsert
+      del CashTransaction (processato dopo) sovrascriveva silenziosamente la vendita:
+      1) T-bond USA, vendita 2025-09-30 (-4.000, migration `0011`); 2) OAT francese,
+      **4 vendite** perse (-9.000 il 2024-11-07, -6.000/-10.000/-4.000 il 2025-05-19,
+      migration `0012`+`0013`). Fix strutturale: indice unique esteso a
+      `(conto_id, ibkr_transaction_id, tipo)` su `movimenti`/`tax_movements` (`tipo`
+      disambigua, essendo 'trade' vs 'interessi'/'cedola'/...) + lookup
+      `movimento_id` da tax_movements ora per `(transactionID, movimento.tipo)`
+      composto, non solo transactionID. **Trovato anche un secondo bug strutturale**
+      nel motore lotti stesso durante il ricalcolo manuale dell'OAT: il tie-break per
+      movimenti sullo stesso giorno solare (per `id` casuale) poteva allocare una
+      vendita su un acquisto dello stesso giorno eseguito DOPO nell'orario reale —
+      fix: vendita sempre prima di acquisto a parità di data (`lot-matching.ts`,
+      deployato `calcola-lotti-fiscali` v3). Riconciliazione finale: **18/18
+      strumenti concordanti, zero divergenze** al 31/12/2025. La vendita OAT del
+      2024-11-07 cade in un anno già dichiarato: corretto solo il ledger sottostante
+      (nessun `tax_events` toccato per il 2024, mai calcolati da questo sistema).
+      Quadro RT 2025 aggiornato di conseguenza (imposta totale invariata 1.035,72 €,
+      ma riporto minusvalenze whitelist corretto a 600,90 € invece di 103,74 €).
+      Dettagli completi in `docs/decisioni-fiscali.md`.
+      **Resta un limite noto**: la riconciliazione copre solo le QUANTITÀ, non
+      l'obbligo di monitoraggio RW riga per riga (ISIN/paese/valore per prodotto
+      estero) — quello richiederebbe una vista/export dedicata da
+      `posizioni_aperte_ibkr`, non ancora costruita.
 - [ ] Trasferimenti titoli (`transfer_titoli`): il costo di carico per lotti trasferiti
       IN non è ancora seminato nel motore lotti — nessuno nel backfill 2023-2025
       (solo `transfer_cassa` osservati), ma da gestire se ricorre in futuro.
