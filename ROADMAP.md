@@ -266,26 +266,39 @@
         finora): tetto rispettato, eccedenza calcolata correttamente, aliquota
         uscita corretta ai limiti noti (15 anni→15%, 35+ anni→9% pavimento).
 
-## Frontend — rimandato di proposito
+## Frontend — auth minimale fatto, viste vere ancora rimandate
 
-> Decisione esplicita dell'utente: nessun frontend finché il modello dati non è più
-> maturo, per evitare di costruire viste su uno schema ancora in movimento e doverle
-> poi rifare. Fino ad allora tutto (ingestione IBKR, motore lotti, quadro fiscale) resta
-> verificato solo via SQL diretto/script offline — nessun login, nessuna pagina, niente
-> da testare visivamente.
->
-> Criterio per riconsiderare (non una data, un traguardo): la Fase 1 (motore fiscale)
-> è il dominio con più probabilità di richiedere ancora modifiche strutturali allo
-> schema (RM/RW/IVAFE/fondi pensione non ancora implementati, riconciliazione
-> OpenPosition non modellata). Il momento naturale per iniziare il frontend è quando
-> Fase 1 è **funzionalmente completa** (RT ✅, RM, RW, IVAFE e fondi pensione fatti) —
-> a quel punto lo schema `tax_*`/`conti`/`movimenti` dovrebbe essere stabile abbastanza
-> da non richiedere rework delle viste. Non è comunque necessario aspettare anche Fase
-> 2/3 (UTENZE/INTROITI): sono domini indipendenti che possono aggiungersi in seguito
-> senza toccare le viste già costruite per INVESTIMENTI.
-> Nel frattempo, la necessità di un JWT reale (bloccante per invocare le edge function
-> via HTTP, non solo via SQL diretto) resta un motivo pratico in più per non rimandare
-> all'infinito: il primo pezzo di frontend, quando si parte, sarà comunque login+auth.
+> Decisione originale: nessun frontend finché il modello dati non è più maturo, per
+> evitare di costruire viste su uno schema ancora in movimento e doverle poi rifare.
+> Il criterio di riconsiderazione (Fase 1 funzionalmente completa: RT ✅, RM ✅, RW ✅,
+> fondi pensione ✅) è stato raggiunto in questa sessione. **Ridiscusso con l'utente**:
+> la decisione resta valida per le **viste** (dashboard investimenti/utenze — UTENZE in
+> particolare ha lo schema ancora visibilmente in movimento, vedi le 3 migration di
+> correzione in Fase 2), ma **non per l'autenticazione**, che è infrastruttura
+> indipendente dallo schema di dominio (`auth.users`, non `tax_*`/`utenze_*`) e serve a
+> validare le edge function via HTTP reale invece che solo via SQL diretto.
+
+- [x] **Login + shell minimale** — `index.html` (carica Supabase JS SDK via CDN,
+      nessun bundler), `js/shared/config.js` (`SUPABASE_URL`/`SUPABASE_ANON_KEY`,
+      pubblica per design), `js/shared/api.js` (`invokeFunction()` — wrapper su
+      `supabaseClient.functions.invoke()`), `js/shared/auth.js` (boot sequence:
+      `getSession()` → `pages/login.html` o `pages/home.html`; login/logout via
+      `signInWithPassword`/`signOut`), `pages/login.html` + `pages/home.html`,
+      `css/main.css` (stile minimo, esplicitamente "funzionale non definitivo").
+      `pages/home.html` non è una dashboard: è un pannello che invoca a mano
+      qualunque edge function deployata (dropdown + textarea JSON body + output
+      grezzo) — serve solo a validare end-to-end, non a mostrare dati con una UI
+      pensata. Preview locale via `.claude/launch.json` del repo `lmadvisorylive`
+      (config `budgeting-static`, `http-server` su porta 5500 — `serve` scartato per
+      un bug di redirect delle clean URL su percorsi annidati `pages/*.html`).
+      **Validato dal vivo dall'utente**: login riuscito con l'utente Auth già
+      esistente (`madaschimattia@gmail.com`, creato in una sessione precedente) e
+      prima invocazione HTTP reale di un'edge function (`calcola-quadro-rt`,
+      `{"anno":2025}`) — risposta coincidente esattamente coi valori calcolati via
+      SQL in precedenza (plusvalenza ordinaria 3.952,21€/imposta 1.027,57€,
+      minusvalenza whitelist riportata 600,90€, provento OICR 31,34€/imposta 8,15€).
+      Prima conferma che l'intera catena login→JWT→edge function→business logic
+      funziona anche fuori da SQL diretto.
 
 ## Fase 2 — UTENZE (ingestione Drive → PDF → Claude) — in corso
 
