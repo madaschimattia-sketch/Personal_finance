@@ -128,6 +128,7 @@ export interface TaxMovementRow {
   ibkr_transaction_id: string | null;
   ibkr_trade_id: string | null;
   isin: string | null; // usato solo per il lookup instrument_id lato chiamante
+  conid: string | null; // fallback di lookup quando isin e' null (es. opzioni)
   evento_opzione: "exercise" | "assignment" | "expiration" | null; // valorizzato dal chiamante da OptionEAE
 }
 
@@ -181,6 +182,7 @@ export function mapTrade(t: Record<string, unknown>, contoId: string, userId: st
       ibkr_transaction_id: movimento.ibkr_transaction_id,
       ibkr_trade_id: movimento.ibkr_trade_id,
       isin: movimento.isin,
+      conid: movimento.conid,
       evento_opzione: null, // valorizzato dal chiamante via mapOptionEventiPerTradeId
     }
     : null;
@@ -238,6 +240,7 @@ export function mapCashTransaction(c: Record<string, unknown>, contoId: string, 
       ibkr_transaction_id: movimento.ibkr_transaction_id,
       ibkr_trade_id: null,
       isin: movimento.isin,
+      conid: movimento.conid,
       evento_opzione: null,
     }
     : null;
@@ -245,13 +248,17 @@ export function mapCashTransaction(c: Record<string, unknown>, contoId: string, 
   return { movimento, taxMovement };
 }
 
-export function mapTransfer(t: Record<string, unknown>, contoId: string, userId: string): MovimentoRow {
+export function mapTransfer(t: Record<string, unknown>, contoId: string, userId: string): {
+  movimento: MovimentoRow;
+  taxMovement: TaxMovementRow | null;
+} {
   const fx = num(t.fxRateToBase) || 1;
   const hasQuantity = num(t.quantity) !== 0;
   const cashTransfer = num(t.cashTransfer);
   const importoNativo = hasQuantity ? num(t.positionAmountInBase) : cashTransfer;
+  const direction = String(t.direction ?? "");
 
-  return {
+  const movimento: MovimentoRow = {
     conto_id: contoId,
     user_id: userId,
     tipo: hasQuantity ? "transfer_titoli" : "transfer_cassa",
@@ -270,9 +277,40 @@ export function mapTransfer(t: Record<string, unknown>, contoId: string, userId:
     importo_valuta: hasQuantity ? num(t.positionAmountInBase) : cashTransfer,
     ibkr_transaction_id: strOrNull(t.transactionID),
     ibkr_trade_id: null,
-    descrizione: `Transfer ${String(t.type ?? "")} ${String(t.direction ?? "")}`.trim(),
+    descrizione: `Transfer ${String(t.type ?? "")} ${direction}`.trim(),
     raw: t,
   };
+
+  // Trasferimento titoli IN (da un altro conto/broker, non un acquisto sul mercato):
+  // semina il motore lotti con un 'acquisto' sintetico usando il costo di carico
+  // originale (campo 'cost', valuta nativa) cosi' il lotto trasferito viene tracciato
+  // con la sua base di costo reale invece di sparire dal motore. Il Transfer di IBKR
+  // NON porta una data di acquisto originale (nessun campo tipo openDateTime — solo
+  // 'date'/'dateTime' del trasferimento stesso): la data_acquisto del lotto sara' quindi
+  // la data del trasferimento, non la vera data di acquisto originale. Non cambia
+  // l'aliquota (in Italia il capital gain non dipende dal periodo di possesso), solo
+  // giorni_detenzione risultera' sottostimato — accettabile, segnalato in
+  // docs/decisioni-fiscali.md. Trasferimenti OUT non gestiti (nessun caso reale finora,
+  // fuori scope: vedi ROADMAP.md).
+  const taxMovement: TaxMovementRow | null = hasQuantity && direction === "IN"
+    ? {
+      conto_id: contoId,
+      user_id: userId,
+      tipo: "acquisto",
+      data: movimento.data,
+      quantita: movimento.quantita,
+      prezzo_eur: movimento.prezzo,
+      importo_eur: -Math.abs(num(t.cost) * fx),
+      commissioni_eur: 0,
+      ibkr_transaction_id: movimento.ibkr_transaction_id,
+      ibkr_trade_id: null,
+      isin: movimento.isin,
+      conid: movimento.conid,
+      evento_opzione: null,
+    }
+    : null;
+
+  return { movimento, taxMovement };
 }
 
 // Media ponderata per ETF/OICR (subCategory='ETF'), LIFO per il resto (azioni, ADR,

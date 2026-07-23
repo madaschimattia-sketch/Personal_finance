@@ -95,25 +95,35 @@ async function processConto(
   try {
     // 1) tax_instruments (upsert; non sovrascrive metodo_costo/whitelist/oicr una volta
     //    che classificazione_confermata=true, altrimenti un pull successivo cancellerebbe
-    //    la revisione umana con il suggerimento automatico da subCategory)
-    const instrumentRows = parsed.securities.map(mapSecurityInfo).filter((s) => s.isin);
-    if (instrumentRows.length > 0) {
-      const isins = instrumentRows.map((s) => s.isin as string);
+    //    la revisione umana con il suggerimento automatico da subCategory).
+    //    Le opzioni (e altri strumenti senza ISIN, es. alcuni derivati) usano `conid`
+    //    come chiave alternativa — non venivano create affatto prima (filtrate via
+    //    `.filter(s => s.isin)`), quindi un'opzione richiedeva l'inserimento manuale
+    //    del tax_instruments E il collegamento manuale di tax_movements.instrument_id
+    //    (vedi ROADMAP.md, caso OKLO nel backfill). instrumentRowsConIsin/SenzaIsin sono
+    //    processati con due upsert separati perche' Postgres richiede un solo vincolo
+    //    unique per ON CONFLICT (non "isin OPPURE conid" nella stessa chiamata).
+    const tuttiGliStrumenti = parsed.securities.map(mapSecurityInfo);
+    const instrumentRowsConIsin = tuttiGliStrumenti.filter((s) => s.isin);
+    const instrumentRowsSenzaIsin = tuttiGliStrumenti.filter((s) => !s.isin && s.conid);
+
+    if (instrumentRowsConIsin.length > 0) {
+      const isins = instrumentRowsConIsin.map((s) => s.isin as string);
       const { data: existing, error: existErr } = await admin
         .from("tax_instruments")
         .select("isin, classificazione_confermata")
         .in("isin", isins);
-      if (existErr) throw new Error(`Lettura tax_instruments esistenti fallita: ${existErr.message}`);
+      if (existErr) throw new Error(`Lettura tax_instruments esistenti (isin) fallita: ${existErr.message}`);
       const confermati = new Set((existing ?? []).filter((r) => r.classificazione_confermata).map((r) => r.isin as string));
 
-      const daSuggerire = instrumentRows.filter((s) => !confermati.has(s.isin as string));
-      const daAggiornareSoloDescrittivo = instrumentRows.filter((s) => confermati.has(s.isin as string));
+      const daSuggerire = instrumentRowsConIsin.filter((s) => !confermati.has(s.isin as string));
+      const daAggiornareSoloDescrittivo = instrumentRowsConIsin.filter((s) => confermati.has(s.isin as string));
 
       if (daSuggerire.length > 0) {
         const { error } = await admin
           .from("tax_instruments")
           .upsert(daSuggerire, { onConflict: "isin", ignoreDuplicates: false });
-        if (error) throw new Error(`Upsert tax_instruments fallito: ${error.message}`);
+        if (error) throw new Error(`Upsert tax_instruments (isin) fallito: ${error.message}`);
       }
       for (const s of daAggiornareSoloDescrittivo) {
         const { error } = await admin
@@ -128,16 +138,57 @@ async function processConto(
             issuer_country_code: s.issuer_country_code,
           })
           .eq("isin", s.isin as string);
-        if (error) throw new Error(`Update descrittivo tax_instruments fallito: ${error.message}`);
+        if (error) throw new Error(`Update descrittivo tax_instruments (isin) fallito: ${error.message}`);
+      }
+    }
+
+    if (instrumentRowsSenzaIsin.length > 0) {
+      const conids = instrumentRowsSenzaIsin.map((s) => s.conid as string);
+      const { data: existing, error: existErr } = await admin
+        .from("tax_instruments")
+        .select("conid, classificazione_confermata")
+        .in("conid", conids);
+      if (existErr) throw new Error(`Lettura tax_instruments esistenti (conid) fallita: ${existErr.message}`);
+      const confermati = new Set((existing ?? []).filter((r) => r.classificazione_confermata).map((r) => r.conid as string));
+
+      const daSuggerire = instrumentRowsSenzaIsin.filter((s) => !confermati.has(s.conid as string));
+      const daAggiornareSoloDescrittivo = instrumentRowsSenzaIsin.filter((s) => confermati.has(s.conid as string));
+
+      if (daSuggerire.length > 0) {
+        const { error } = await admin
+          .from("tax_instruments")
+          .upsert(daSuggerire, { onConflict: "conid", ignoreDuplicates: false });
+        if (error) throw new Error(`Upsert tax_instruments (conid) fallito: ${error.message}`);
+      }
+      for (const s of daAggiornareSoloDescrittivo) {
+        const { error } = await admin
+          .from("tax_instruments")
+          .update({
+            symbol: s.symbol,
+            descrizione: s.descrizione,
+            asset_category: s.asset_category,
+            sub_category: s.sub_category,
+            issuer: s.issuer,
+            issuer_country_code: s.issuer_country_code,
+            underlying_conid: s.underlying_conid,
+            underlying_isin: s.underlying_isin,
+            underlying_symbol: s.underlying_symbol,
+          })
+          .eq("conid", s.conid as string);
+        if (error) throw new Error(`Update descrittivo tax_instruments (conid) fallito: ${error.message}`);
       }
     }
 
     const { data: instruments, error: instrErr } = await admin
       .from("tax_instruments")
-      .select("id, isin")
-      .not("isin", "is", null);
+      .select("id, isin, conid");
     if (instrErr) throw new Error(`Lettura tax_instruments fallita: ${instrErr.message}`);
-    const instrumentIdByIsin = new Map<string, string>((instruments ?? []).map((r) => [r.isin as string, r.id as string]));
+    const instrumentIdByIsin = new Map<string, string>(
+      (instruments ?? []).filter((r) => r.isin).map((r) => [r.isin as string, r.id as string]),
+    );
+    const instrumentIdByConid = new Map<string, string>(
+      (instruments ?? []).filter((r) => r.conid).map((r) => [r.conid as string, r.id as string]),
+    );
 
     // 2) movimenti (trade + cash + transfer) + subset fiscale
     const movimenti: MovimentoRow[] = [];
@@ -171,7 +222,11 @@ async function processConto(
       }
     }
     for (const t of parsed.transfers) {
-      movimenti.push(mapTransfer(t, conto.id, conto.user_id));
+      const { movimento, taxMovement } = mapTransfer(t, conto.id, conto.user_id);
+      movimenti.push(movimento);
+      if (taxMovement) {
+        taxMovements.push({ ...taxMovement, evento_opzione: null, movimento_transaction_id: movimento.ibkr_transaction_id, movimento_tipo: movimento.tipo });
+      }
     }
 
     const movimentiConDoc = movimenti.map((m) => ({ ...m, documento_grezzo_id: documentoGrezzoId }));
@@ -191,10 +246,11 @@ async function processConto(
       if (movErr) throw new Error(`Lettura movimenti fallita: ${movErr.message}`);
       const movimentoIdByTxIdTipo = new Map<string, string>((movRows ?? []).map((r) => [`${r.ibkr_transaction_id}|${r.tipo}`, r.id as string]));
 
-      const taxMovementRows = taxMovements.map(({ movimento_transaction_id, movimento_tipo, isin, ...rest }) => ({
+      const taxMovementRows = taxMovements.map(({ movimento_transaction_id, movimento_tipo, isin, conid, ...rest }) => ({
         ...rest,
         movimento_id: movimento_transaction_id ? movimentoIdByTxIdTipo.get(`${movimento_transaction_id}|${movimento_tipo}`) ?? null : null,
-        instrument_id: isin ? instrumentIdByIsin.get(isin) ?? null : null,
+        // isin prioritario; conid come fallback (opzioni e altri strumenti senza ISIN)
+        instrument_id: isin ? instrumentIdByIsin.get(isin) ?? null : conid ? instrumentIdByConid.get(conid) ?? null : null,
       }));
       const { error } = await admin
         .from("tax_movements")
@@ -236,7 +292,7 @@ async function processConto(
         trades: parsed.trades.length,
         cash: parsed.cash.length,
         transfers: parsed.transfers.length,
-        instruments: instrumentRows.length,
+        instruments: instrumentRowsConIsin.length + instrumentRowsSenzaIsin.length,
         nav: navRows.length,
         open_positions: openPositionRows.length,
       },

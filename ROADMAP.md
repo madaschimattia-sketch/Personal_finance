@@ -198,15 +198,29 @@
       l'obbligo di monitoraggio RW riga per riga (ISIN/paese/valore per prodotto
       estero) — quello richiederebbe una vista/export dedicata da
       `posizioni_aperte_ibkr`, non ancora costruita.
-- [ ] Trasferimenti titoli (`transfer_titoli`): il costo di carico per lotti trasferiti
-      IN non è ancora seminato nel motore lotti — nessuno nel backfill 2023-2025
-      (solo `transfer_cassa` osservati), ma da gestire se ricorre in futuro.
-- [ ] Opzioni senza ISIN: `ibkr-flex-pull` scarta le righe `SecuritiesInfo` senza ISIN
-      (filtro `.filter(s => s.isin)`), quindi un pull normale **non crea**
-      `tax_instruments` per le opzioni. Per il backfill l'unica opzione (OKLO call)
-      è stata inserita a mano (`conid` come riferimento, `isin=NULL`). Se in futuro
-      ricorrono più opzioni, va rivista la chiave di upsert (oggi solo su `isin`,
-      andrebbe estesa a `conid` per evitare righe duplicate ad ogni pull).
+- [x] **Trasferimenti titoli IN** (`transfer_titoli`) — `mapTransfer` (ibkr-flex-parse.ts)
+      ora restituisce anche un `TaxMovementRow` sintetico (`tipo='acquisto'`) quando
+      `direction='IN'` e c'è quantità, usando il campo `cost` del `Transfer` come base
+      di costo — prima il lotto trasferito spariva semplicemente dal motore (nessun
+      `tax_movement` generato). **Limite noto**: il `Transfer` di IBKR non porta una
+      data di acquisto originale (nessun campo `openDateTime`, solo la data del
+      trasferimento stesso) — `data_acquisto` del lotto sarà quindi la data del
+      trasferimento, non quella reale. Non cambia l'aliquota (in Italia il capital
+      gain non dipende dal periodo di possesso), solo `giorni_detenzione` risulterà
+      sottostimato. Trasferimenti OUT restano fuori scope (nessun caso reale finora).
+      **Non testato su dati reali** (`transfer_titoli`: zero occorrenze nel backfill
+      2023-2025, solo `transfer_cassa`) — pronto per la prossima volta che ricorre.
+- [x] **Opzioni senza ISIN** — `ibkr-flex-pull` (v9) ora crea/aggiorna
+      `tax_instruments` anche per strumenti senza ISIN (opzioni e altri derivati),
+      usando `conid` come chiave alternativa (nuovo indice unique `conid`, migration
+      `0015`) con due upsert separati (Postgres richiede un solo vincolo per
+      `ON CONFLICT`). Anche il collegamento `tax_movements.instrument_id` ora risolve
+      per `conid` quando `isin` è assente (`TaxMovementRow.conid`, nuovo campo). Prima
+      le opzioni non venivano create affatto (`.filter(s => s.isin)` le scartava) —
+      l'unico caso reale (OKLO call) era stato inserito e collegato **a mano** durante
+      il backfill (vedi commit precedenti); ora un pull futuro lo farebbe da solo.
+      Verificato che lo schema del caso OKLO esistente resta coerente con la nuova
+      logica (`isin=null`, `conid` valorizzato).
 
 ### Fondi pensione — motore di calcolo (deduzione versamenti)
 
