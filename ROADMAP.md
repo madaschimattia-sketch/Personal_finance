@@ -287,9 +287,62 @@
 > via HTTP, non solo via SQL diretto) resta un motivo pratico in più per non rimandare
 > all'infinito: il primo pezzo di frontend, quando si parte, sarà comunque login+auth.
 
-## Fase 2 — UTENZE (ingestione Drive → PDF → Claude)
+## Fase 2 — UTENZE (ingestione Drive → PDF → Claude) — in corso
 
-Non iniziata. Pipeline separata da IBKR: parsing PDF via Claude API, non Flex Web Service.
+Pipeline separata da IBKR: parsing PDF via Claude API, non Flex Web Service.
+
+- [x] **Struttura cartelle Drive creata** — `BUDGETING/` con le 4 sezioni del design
+      doc (`01_INVESTIMENTI/{IBKR,ALTRI_CONTI}`, `02_UTENZE/`, `03_INTROITI/{BUSTE_PAGA,CU,CONTRATTO_LAVORO}`,
+      `04_FISCALE/DICHIARAZIONI_PREGRESSE`). Sotto `02_UTENZE/` una cartella
+      domicilio placeholder (`CASA (rinomina con il nome reale del domicilio)`)
+      con le 6 sottocartelle categoria (`LUCE`, `GAS`, `ACQUA`,
+      `INTERNET_TELEFONO`, `CONDOMINIO`, `AFFITTO`) — **da rinominare** col nome
+      reale del domicilio (va a corrispondere a `domicili.nome`) e da popolare
+      con le bollette reali: non ne esistevano ne' su Drive ne' in locale, quindi
+      né la struttura né il prompt di estrazione sono stati validati contro un
+      documento reale.
+- [x] **Schema** (migration `0017`): `domicilio_intestatari` (ponte quota-based
+      domicilio↔intestatario, stesso pattern di `conto_intestatari`, applica la
+      cointestazione anche a UTENZE come da decisione architetturale) +
+      `utenze_bollette` (bolletta normalizzata: `domicilio_id`,
+      `documento_grezzo_id`, `categoria` CHECK chiuso su
+      luce/gas/acqua/internet_telefono/condominio/affitto — `fornitore` resta
+      testo libero, non anagrafica, troppo eterogeneo per un uso personale;
+      `importo`/`imponibile`/`iva` sempre EUR, no conversione valuta necessaria;
+      `raw_estrazione` jsonb conserva l'output grezzo Claude per ri-derivazione
+      senza richiamare l'API). `documenti_grezzi.sezione='utenze'` era gia'
+      supportato da Fase 0, nessuna modifica li' necessaria.
+- [x] **Edge function `estrai-bolletta`** (JWT-protected, per utente) — data un
+      `documento_grezzo_id` gia' archiviato su Storage (upload manuale per ora),
+      scarica il PDF, chiama Anthropic API (`claude-haiku-4-5`) con
+      `tool_choice` forzato su uno schema fisso (`_shared/estrazione-bolletta.ts`,
+      `registra_bolletta`) per evitare ambiguita' di parsing di JSON libero,
+      inserisce la riga in `utenze_bollette` e aggiorna
+      `documenti_grezzi.stato_elaborazione`. `categoria`/`domicilio_id` sono
+      passati dal chiamante (metadati noti dalla posizione del file), non
+      inferiti dal contenuto del PDF. Deployata (`ACTIVE`, v1) ma **non ancora
+      invocata con un documento reale** — manca sia una bolletta reale sia il
+      secret.
+      **Blocco noto**: richiede il secret `ANTHROPIC_API_KEY` su questo progetto
+      Supabase, non ancora configurato. Da generare su
+      [console.anthropic.com](https://console.anthropic.com) (Settings → API Keys)
+      e impostare da Dashboard Supabase → Edge Functions → Secrets (o
+      `supabase secrets set ANTHROPIC_API_KEY=...` da CLI). Finche' manca, la
+      function risponde 500 esplicito senza tentare la chiamata.
+- [ ] **Sync automatico da Drive** — non ancora costruito. Richiederebbe una
+      edge function schedulata con credenziali OAuth Google (Drive API scope),
+      stesso tipo di setup di `GOOGLE_CLIENT_ID`/`SECRET`/`REFRESH_TOKEN` gia'
+      usato in LMadvisory per Calendar — non ancora fatto qui. Fino ad allora,
+      bootstrap manuale come per Fase 1: upload diretto su Storage +
+      insert manuale in `documenti_grezzi`, poi invocazione di
+      `estrai-bolletta`.
+- [ ] **Viste (singola utenza / per domicilio / aggregata) e analisi scostamenti
+      rispetto allo storico** — non iniziate, dipendono da avere dati reali in
+      `utenze_bollette` da cui derivare la vista.
+- **Decisione presa implicitamente**: AFFITTO incluso in UTENZE (la struttura
+      cartelle del design doc lo prevede gia' come sottocategoria) — la
+      "decisione aperta" nel documento di memoria del progetto è considerata
+      chiusa in questo senso salvo indicazione contraria.
 
 ## Fase 3 — INTROITI DA LAVORO
 
