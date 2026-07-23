@@ -323,12 +323,12 @@ Pipeline separata da IBKR: parsing PDF via Claude API, non Flex Web Service.
       inferiti dal contenuto del PDF. Deployata (`ACTIVE`, v1) ma **non ancora
       invocata con un documento reale** — manca sia una bolletta reale sia il
       secret.
-      **Blocco noto**: richiede il secret `ANTHROPIC_API_KEY` su questo progetto
-      Supabase, non ancora configurato. Da generare su
-      [console.anthropic.com](https://console.anthropic.com) (Settings → API Keys)
-      e impostare da Dashboard Supabase → Edge Functions → Secrets (o
-      `supabase secrets set ANTHROPIC_API_KEY=...` da CLI). Finche' manca, la
-      function risponde 500 esplicito senza tentare la chiamata.
+      **Aggiornamento**: il secret `ANTHROPIC_API_KEY` **risulta ora configurato**
+      su questo progetto Supabase (confermato dall'utente via Dashboard → Edge
+      Functions → Secrets). Resta comunque **non invocata contro un documento
+      reale**: il blocco residuo non è più il secret ma l'assenza di un JWT
+      utente in sessione per autenticare la chiamata HTTP (stesso limite di
+      `ibkr-flex-pull` — nessun login/frontend costruito in questo repo).
 - [ ] **Sync automatico da Drive** — non ancora costruito. Richiederebbe una
       edge function schedulata con credenziali OAuth Google (Drive API scope),
       stesso tipo di setup di `GOOGLE_CLIENT_ID`/`SECRET`/`REFRESH_TOKEN` gia'
@@ -352,24 +352,34 @@ Pipeline separata da IBKR: parsing PDF via Claude API, non Flex Web Service.
       richiesto: LUCE/GAS/ACQUA/INTERNET_TELEFONO/AFFITTO/CONDOMINIO sono suoi
       figli diretti.
 - [x] **Primo caricamento reale — domicilio Milano/Mac Mahon** (migration
-      `0018`): 1 domicilio, 2 intestatari (Mattia Madaschi + Martina Tombini,
-      cointestatari del contratto di locazione, quota 50/50 in
-      `domicilio_intestatari`), **27 righe `utenze_bollette`** — 10 bollette
-      luce A2A Energia (gen-2025→lug-2026, tutte le fatture bimestrali senza
-      buchi), 14 conti telefonici Vodafone per la linea internet fissa
-      (set-2024→nov-2025, manca solo il periodo 09/01-08/02/2025 non
-      caricato), 1 riga di riferimento per il contratto di affitto (rata
-      trimestrale 5.340€ = canone 4.500€ + anticipo condominiale 840€,
-      **non** prova di pagamento del singolo trimestre — nessun estratto conto
-      disponibile), 2 righe condominio (consuntivo riscaldamento stagione
-      2024/2025 e saldo finale personale dell'esercizio 2023/2024).
+      `0018` + correzioni `0019`): 1 domicilio, 2 intestatari (Mattia Madaschi
+      + Martina Tombini, cointestatari del contratto di locazione, quota
+      50/50 in `domicilio_intestatari`), **30 righe `utenze_bollette`** —
+      12 bollette luce A2A Energia (feb-2024→giu-2026; buco maggio-novembre
+      2024 non caricato), 15 conti telefonici Vodafone per la linea internet
+      fissa (set-2024→dic-2025, **nessun buco**), 1 riga di riferimento per il
+      contratto di affitto (rata trimestrale 5.340€ = canone 4.500€ +
+      anticipo condominiale 840€, **non** prova di pagamento del singolo
+      trimestre — nessun estratto conto disponibile), 2 righe condominio
+      (saldo finale personale esercizio 2023/2024 = 28,29€ ed esercizio
+      2024/2025 = 528,37€, entrambe unità SX33 Ortega B.-Lauricella).
       **Estrazione fatta a mano** (lettura diretta del contenuto testuale dei
       PDF via Drive), non tramite `estrai-bolletta`: quella edge function
-      resta quindi **non ancora validata contro dati reali**, in attesa del
-      secret `ANTHROPIC_API_KEY`. I documenti sorgente sono su Drive
-      (`BUDGETING/02_UTENZE/MILANO - MAC MAHON/`) ma non ancora copiati su
-      Storage/`documenti_grezzi` — stesso "debito di archiviazione" di Fase 1
-      (nessun JWT utente disponibile in sessione).
+      resta quindi **non ancora validata contro dati reali** (vedi punto
+      sopra — non è più bloccata dal secret ma dal JWT). I documenti sorgente
+      sono su Drive (`BUDGETING/02_UTENZE/MILANO - MAC MAHON/`) ma non ancora
+      copiati su Storage/`documenti_grezzi` — stesso "debito di
+      archiviazione" di Fase 1 (nessun JWT utente disponibile in sessione).
+      **Limite noto sul consuntivo condominiale**: la tabella del PDF con la
+      ripartizione per voce (Condominio/Proprietà/Mediazione TRIPODI/
+      Generali/Acqua/Ascensore/Antenna TV/Riscaldamento) risulta poco
+      affidabile dopo l'estrazione testo (colonne disallineate dall'OCR) — in
+      `utenze_bollette` si riporta solo il saldo finale personale
+      dell'esercizio, l'unico numero verificabile con sicurezza. La
+      suddivisione voci a carico inquilino vs proprietà (richiesta
+      dall'utente, criteri art. 9 L.392/1978) non è stata modellata riga per
+      riga per questo motivo — resta un TODO se serve il dettaglio, da fare
+      rileggendo a mano il PDF originale.
 
 ## Fase 3 — INTROITI DA LAVORO
 
