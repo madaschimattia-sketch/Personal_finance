@@ -1,0 +1,24 @@
+<div class="shell">
+  <nav class="topnav">
+    <strong>Budgeting</strong>
+    <a href="#" data-page="portafoglio">Portafoglio</a>
+    <a href="#" data-page="fiscale">Fiscale</a>
+    <a href="#" data-page="test">Test edge function</a>
+    <span id="nav-email" class="nav-email"></span>
+    <button id="btn-logout-nav">Esci</button>
+  </nav>
+
+  <h1>Dichiarazione fiscale</h1>
+  <label class="riga-anno">Anno
+    <select id="fiscale-anno">
+      <option value="2025">2025</option>
+      <option value="2026">2026</option>
+      <option value="2024">2024</option>
+      <option value="2023">2023</option>
+    </select>
+  </label>
+  <button id="btn-ricalcola">Ricalcola</button>
+  <p id="fiscale-stato" class="nota"></p>
+
+  <div id="fiscale-quadri"></div>
+</div>

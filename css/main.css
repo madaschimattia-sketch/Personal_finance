@@ -14,13 +14,24 @@ body {
   background: var(--bg);
   color: var(--fg);
 }
-#app { max-width: 640px; margin: 0 auto; padding: 2rem 1rem; }
+#app { max-width: 960px; margin: 0 auto; padding: 2rem 1rem; }
 .login-box { max-width: 320px; margin: 4rem auto; }
 form label { display: block; margin-bottom: 1rem; }
 input, textarea, select { width: 100%; padding: 0.5rem; margin-top: 0.25rem; background: var(--bg); color: var(--fg); border: 1px solid var(--bordo); border-radius: 4px; }
 button { padding: 0.5rem 1rem; background: var(--accent); color: white; border: none; border-radius: 4px; cursor: pointer; }
 .errore { color: var(--errore); min-height: 1.2em; }
 .nota { color: #999; font-size: 0.9em; border-left: 3px solid var(--bordo); padding-left: 0.75rem; }
-header { display: flex; align-items: center; gap: 1rem; margin-bottom: 1.5rem; }
-header span { flex: 1; color: #999; }
 pre { background: #0b0c0e; border: 1px solid var(--bordo); padding: 1rem; border-radius: 4px; overflow-x: auto; white-space: pre-wrap; word-break: break-word; }
+
+.topnav { display: flex; align-items: center; gap: 1.25rem; margin-bottom: 1.5rem; padding-bottom: 1rem; border-bottom: 1px solid var(--bordo); }
+.topnav a { color: var(--fg); text-decoration: none; }
+.topnav a:hover { color: var(--accent); }
+.nav-email { flex: 1; text-align: right; color: #999; font-size: 0.9em; }
+
+.tabella-dati { width: 100%; border-collapse: collapse; margin-bottom: 1.5rem; }
+.tabella-dati th, .tabella-dati td { text-align: left; padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--bordo); }
+.tabella-dati tfoot th { border-top: 2px solid var(--bordo); border-bottom: none; }
+.positivo { color: #4caf7d; }
+.negativo { color: var(--errore); }
+.riga-anno { display: inline-block; width: auto; margin-right: 1rem; }
+.riga-anno select { width: auto; }

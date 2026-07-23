@@ -1,34 +1,16 @@
-<div class="home">
-  <header>
-    <h1>Budgeting</h1>
-    <span id="home-email"></span>
-    <button id="btn-logout">Esci</button>
-  </header>
+<div class="shell">
+  <nav class="topnav">
+    <strong>Budgeting</strong>
+    <a href="#" data-page="portafoglio">Portafoglio</a>
+    <a href="#" data-page="fiscale">Fiscale</a>
+    <a href="#" data-page="test">Test edge function</a>
+    <span id="nav-email" class="nav-email"></span>
+    <button id="btn-logout-nav">Esci</button>
+  </nav>
 
   <p class="nota">
-    Pagina funzionale, non definitiva — serve a invocare le edge function via HTTP
-    autenticato per validarle end-to-end (finora testate solo via SQL diretto).
-    Le viste vere e proprie (dashboard investimenti/utenze) restano da fare.
+    Home minimale. Scegli una sezione dal menu — Portafoglio e Fiscale leggono dati
+    reali dal conto BUDGETING; sono viste funzionali di prima iterazione, non
+    definitive (nessun grafico, nessuna formattazione elaborata ancora).
   </p>
-
-  <section id="test-edge-function">
-    <h2>Invoca edge function</h2>
-    <label>Function
-      <select id="select-funzione">
-        <option value="calcola-quadro-rt">calcola-quadro-rt</option>
-        <option value="calcola-quadro-rm">calcola-quadro-rm</option>
-        <option value="calcola-quadro-rw">calcola-quadro-rw</option>
-        <option value="calcola-quadro-rw-dettaglio">calcola-quadro-rw-dettaglio</option>
-        <option value="calcola-lotti-fiscali">calcola-lotti-fiscali</option>
-        <option value="calcola-riconciliazione-posizioni">calcola-riconciliazione-posizioni</option>
-        <option value="calcola-fondo-pensione">calcola-fondo-pensione</option>
-        <option value="estrai-bolletta">estrai-bolletta</option>
-      </select>
-    </label>
-    <label>Body JSON
-      <textarea id="input-body" rows="4">{"anno": 2025}</textarea>
-    </label>
-    <button id="btn-invoca">Invoca</button>
-    <pre id="output-risultato"></pre>
-  </section>
 </div>

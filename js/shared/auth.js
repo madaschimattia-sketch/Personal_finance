@@ -1,11 +1,43 @@
 // Boot sequence + navigazione minimale (fetch dei fragment pages/*.html dentro #app,
 // stesso pattern usato in LMadvisory) + login/logout Supabase Auth.
 
+const PAGINE_AUTENTICATE = {
+  home: null,
+  portafoglio: initPortafoglio,
+  fiscale: initFiscale,
+  test: initTest,
+};
+
 async function showPage(pageId) {
   const res = await fetch(`pages/${pageId}.html`);
   document.getElementById("app").innerHTML = await res.text();
-  if (pageId === "login") initLogin();
-  if (pageId === "home") initHome();
+  if (pageId === "login") {
+    initLogin();
+    return;
+  }
+  initNav();
+  const init = PAGINE_AUTENTICATE[pageId];
+  if (init) await init();
+}
+
+function initNav() {
+  document.querySelectorAll("[data-page]").forEach((el) => {
+    el.addEventListener("click", (e) => {
+      e.preventDefault();
+      showPage(el.dataset.page);
+    });
+  });
+  supabaseClient.auth.getSession().then(({ data }) => {
+    const emailEl = document.getElementById("nav-email");
+    if (emailEl) emailEl.textContent = data.session?.user?.email ?? "";
+  });
+  const btnLogout = document.getElementById("btn-logout-nav");
+  if (btnLogout) {
+    btnLogout.addEventListener("click", async () => {
+      await supabaseClient.auth.signOut();
+      showPage("login");
+    });
+  }
 }
 
 function initLogin() {
@@ -24,16 +56,7 @@ function initLogin() {
   });
 }
 
-function initHome() {
-  supabaseClient.auth.getSession().then(({ data }) => {
-    document.getElementById("home-email").textContent = data.session?.user?.email ?? "";
-  });
-
-  document.getElementById("btn-logout").addEventListener("click", async () => {
-    await supabaseClient.auth.signOut();
-    showPage("login");
-  });
-
+function initTest() {
   document.getElementById("btn-invoca").addEventListener("click", async () => {
     const nome = document.getElementById("select-funzione").value;
     const outputEl = document.getElementById("output-risultato");

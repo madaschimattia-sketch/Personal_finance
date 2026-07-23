@@ -266,7 +266,7 @@
         finora): tetto rispettato, eccedenza calcolata correttamente, aliquota
         uscita corretta ai limiti noti (15 anni→15%, 35+ anni→9% pavimento).
 
-## Frontend — auth minimale fatto, viste vere ancora rimandate
+## Frontend — auth + prime viste INVESTIMENTI fatte, UTENZE/INTROITI ancora rimandate
 
 > Decisione originale: nessun frontend finché il modello dati non è più maturo, per
 > evitare di costruire viste su uno schema ancora in movimento e doverle poi rifare.
@@ -299,6 +299,25 @@
       minusvalenza whitelist riportata 600,90€, provento OICR 31,34€/imposta 8,15€).
       Prima conferma che l'intera catena login→JWT→edge function→business logic
       funziona anche fuori da SQL diretto.
+- [x] **Prime viste reali — Portafoglio e Fiscale** (per INVESTIMENTI, l'unico
+      dominio con schema stabile — vedi nota sopra sul perché UTENZE resta
+      escluso). `pages/portafoglio.html` + `js/client/portafoglio.js`: holdings
+      aggregati client-side da `tax_lots` aperti (raggruppati per
+      `instrument_id`, quantità/costo sommati) con valore attuale
+      dall'ultimo snapshot `posizioni_aperte_ibkr` disponibile (match per ISIN,
+      conid come fallback) — **nessuna nuova edge function**, sono tutte
+      tabelle normali protette da RLS, la select diretta via `supabaseClient`
+      basta. `pages/fiscale.html` + `js/client/fiscale.js`: legge `tax_events`
+      per anno selezionato, raggruppati per quadro (RT/RM/RW/RP) in tabelle
+      leggibili con subtotale imposta; pulsante "Ricalcola" invoca in sequenza
+      `calcola-quadro-rt`/`rm`/`rw` + `calcola-fondo-pensione` per l'anno
+      scelto, poi ricarica gli eventi. Nav condivisa (`initNav()` in
+      `auth.js`) tra `home`/`portafoglio`/`fiscale`/`test` (il pannello di
+      invocazione grezza di prima è stato spostato in `pages/test.html`,
+      resta utile per il debug). Formattatore EUR condiviso in
+      `js/shared/format.js`. **Verificato dall'utente**: le pagine si
+      caricano e navigano correttamente da autenticato; il contenuto
+      (correttezza dei dati aggregati) resta da validare nel dettaglio.
 
 ## Fase 2 — UTENZE (ingestione Drive → PDF → Claude) — in corso
 
