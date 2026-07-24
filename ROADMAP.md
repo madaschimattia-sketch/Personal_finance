@@ -420,9 +420,47 @@ Pipeline separata da IBKR: parsing PDF via Claude API, non Flex Web Service.
       acconto/conguaglio, valutare se serve in una fase successiva quando ci
       sarà più di un caso simile).
 
-## Fase 3 — INTROITI DA LAVORO
+## Fase 3 — INTROITI DA LAVORO — in corso
 
-Non iniziata. Stessa pipeline Drive/Claude di UTENZE.
+Stessa pipeline Drive/Claude di UTENZE: documento grezzo → dato normalizzato.
+
+- [x] **Schema ramo dipendente** (migration `0021`): `introiti_buste_paga`
+      (`intestatario_id` NOT NULL FK → `intestatari`, `documento_grezzo_id`
+      nullable FK → `documenti_grezzi`; campi datore_lavoro, periodo_da/a,
+      data_pagamento, lordo, netto, irpef_trattenuta, contributi_inps,
+      addizionali_regionali_comunali, tfr_maturato — solo informativo, nessuna
+      tabella dedicata al cumulo TFR ancora — altre_trattenute, note,
+      raw_estrazione). `documenti_grezzi.sezione='introiti'` era già
+      supportato da Fase 0, nessuna modifica lì necessaria.
+      **Decisione di design**: niente colonna `tipo_reddito` discriminatore su
+      questa tabella — il ramo autonomo (fatture/ritenute/contributi P.IVA,
+      campi troppo diversi da una busta paga) sarà una tabella separata
+      (`introiti_fatture_autonomo`, non ancora costruita: nessun dato reale su
+      cui progettarla) unita in una vista `v_introiti_totali` quando esisterà
+      — l'identità stessa della tabella è il discriminatore, non serve una
+      colonna ridondante su un ramo solo.
+- [x] **Edge function `estrai-busta-paga`** (JWT-protected, per utente) —
+      stesso pattern esatto di `estrai-bolletta`: dato un `documento_grezzo_id`
+      già archiviato su Storage, scarica il PDF, chiama Anthropic API
+      (`claude-haiku-4-5`) con `tool_choice` forzato
+      (`_shared/estrazione-busta-paga.ts`, `registra_busta_paga`), inserisce
+      la riga in `introiti_buste_paga` e aggiorna
+      `documenti_grezzi.stato_elaborazione`. `intestatario_id` passato dal
+      chiamante (proprietà del dato), non inferito dal PDF. Deployata
+      (`ACTIVE`, v1) ma **non ancora invocata con un documento reale**: le
+      cartelle Drive `BUDGETING/03_INTROITI/{BUSTE_PAGA,CU,CONTRATTO_LAVORO}`
+      sono ancora vuote — in attesa che l'utente carichi le prime buste paga
+      reali, stesso bootstrap fatto per UTENZE (validazione manuale prima,
+      poi eventualmente via edge function una volta disponibile un JWT senza
+      passare dal pannello di test).
+- [ ] **Viste (per periodo / aggregata / scostamenti busta-vs-busta)** — non
+      iniziate, dipendono da avere dati reali in `introiti_buste_paga`.
+- [ ] **TFR e fondo pensione** — decisione di collocazione ancora aperta
+      (qui in INTROITI o in INVESTIMENTI, vedi memoria di progetto §4.1/4.3):
+      per ora `tfr_maturato` è solo un campo informativo per periodo, senza
+      cumulo né collegamento a `fondi_pensione`.
+- [ ] **Ramo autonomo (partita IVA)** — non iniziato, rimandato finché non
+      serve davvero (nessun dato reale, nessuna urgenza dichiarata).
 
 ## Fase 4 — BUDGET
 
