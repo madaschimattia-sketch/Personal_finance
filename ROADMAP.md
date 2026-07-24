@@ -447,12 +447,32 @@ Stessa pipeline Drive/Claude di UTENZE: documento grezzo → dato normalizzato.
       la riga in `introiti_buste_paga` e aggiorna
       `documenti_grezzi.stato_elaborazione`. `intestatario_id` passato dal
       chiamante (proprietà del dato), non inferito dal PDF. Deployata
-      (`ACTIVE`, v1) ma **non ancora invocata con un documento reale**: le
-      cartelle Drive `BUDGETING/03_INTROITI/{BUSTE_PAGA,CU,CONTRATTO_LAVORO}`
-      sono ancora vuote — in attesa che l'utente carichi le prime buste paga
-      reali, stesso bootstrap fatto per UTENZE (validazione manuale prima,
-      poi eventualmente via edge function una volta disponibile un JWT senza
-      passare dal pannello di test).
+      (`ACTIVE`, v1) ma **non ancora invocata con un documento reale**: i PDF
+      sono su Drive, non ancora copiati su Storage/`documenti_grezzi` (stesso
+      "debito di archiviazione" di UTENZE/Fase 1 — nessun upload da JWT in
+      sessione), quindi l'estrazione delle 9 buste paga sotto e' stata fatta
+      a mano leggendo il testo dei PDF via Drive, non tramite questa function.
+- [x] **Primo caricamento reale — buste paga Generali** (migration `0022`):
+      **9 righe `introiti_buste_paga`** per Mattia Madaschi, ottobre 2025 →
+      giugno 2026, nessun buco. Lordo/netto/data pagamento estratti con
+      sicurezza (pattern riconoscibile: netto = ultimo importo prima
+      dell'IBAN, seguito dalla data pagamento); addizionali regionale+comunale
+      e alcune trattenute minori (previdenza integrativa, contributo
+      solidarietà, trattenuta buono pasto) chiaramente etichettate nel testo.
+      **IRPEF e contributi INPS lasciati NULL** — il formato busta paga
+      (tabella multi-colonna appiattita in testo lineare, tipico payroll
+      aziendale) non permette di isolarli con sicurezza dalle righe cumulative
+      "Reg. Imponibile Fiscale": stesso principio già seguito per il
+      consuntivo condominiale in Fase 2 (mai fabbricare precisione che non si
+      ha). **Caso particolare dicembre 2025**: il cedolino include la
+      tredicesima (5.283,48€), anticipata il 19/12 con un documento a parte
+      (netto 4.437,61€) poi conguagliata a fine mese — registrata **una sola
+      riga** col netto finale già conguagliato (7.133,79€), per non
+      raddoppiare il conteggio. Caricati anche 3 Certificazioni Uniche
+      (2023/2024/2025) e 3 documenti contrattuali (lettera assunzione,
+      accordo aziendale, bonus/promozione) — non modellati in
+      `introiti_buste_paga` (formato annuale/non periodico), utili in futuro
+      per riconciliazione.
 - [ ] **Viste (per periodo / aggregata / scostamenti busta-vs-busta)** — non
       iniziate, dipendono da avere dati reali in `introiti_buste_paga`.
 - [ ] **TFR e fondo pensione** — decisione di collocazione ancora aperta
