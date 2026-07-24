@@ -738,15 +738,20 @@ contributo mensile, orizzonte — liberamente modificabile dall'utente).
       "exchange" da cui generare un ticker, quindi il ticker Yahoo viene
       risolto per ISIN alla prima esecuzione e cachato, sovrascrivibile a
       mano in caso di collisione di simbolo, es. "GOLD" non è univoco),
-      `rendimento_5y_pct`, `anni_dati_disponibili` (< 5 se lo strumento è
-      quotato da meno tempo; sotto 2 anni il calcolo viene scartato per bassa
-      significatività), `rendimento_5y_calcolato_il`. Edge function
-      `calcola-rendimenti-storici` (da rilanciare a mano, non un cron):
-      risolve il ticker Yahoo per ISIN via l'endpoint di ricerca, scarica
-      ~5 anni di prezzi settimanali (adjclose) e calcola il CAGR realizzato.
-      Mai un dato fabbricato: dove la risoluzione o il fetch falliscono resta
-      `NULL` e le proiezioni usano il fallback per categoria di
-      `config_rendimenti_attesi`. `proiezioni.js` ora pesa il CAGR per
+      `rendimento_5y_pct`, `anni_dati_disponibili`, `rendimento_5y_calcolato_il`.
+      Edge function `calcola-rendimenti-storici` (da rilanciare a mano, non un
+      cron): risolve il ticker Yahoo per ISIN via l'endpoint di ricerca,
+      scarica **un'unica volta** ~5 anni di prezzi settimanali (adjclose) e
+      calcola il CAGR sulla **finestra più lunga disponibile tra 5/3/1 anni**
+      (fallback a cascata esplicitamente richiesto dall'utente: se lo
+      strumento non ha 5 anni di storico prova 3, poi 1 — le tre finestre
+      sono sotto-intervalli dello stesso fetch, nessuna chiamata Yahoo
+      aggiuntiva); sotto 1 anno di storico il calcolo viene scartato per
+      bassa significatività. `anni_dati_disponibili` rende trasparente quale
+      finestra è stata usata. Mai un dato fabbricato: dove la risoluzione o
+      il fetch falliscono resta `NULL` e le proiezioni usano il fallback per
+      categoria di `config_rendimenti_attesi`. `proiezioni.js` ora pesa il
+      CAGR per
       **valore di posizione attuale** di ogni strumento (reale dove
       disponibile, fallback altrimenti) invece della sola categoria
       NAV-bucket; pulsante "Ricalcola rendimenti storici strumenti" nella
@@ -754,10 +759,20 @@ contributo mensile, orizzonte — liberamente modificabile dall'utente).
       questa sessione).
 - [ ] **Verifica utente** — non testato in flusso autenticato reale (nessuna
       credenziale inserita dall'assistente, per policy): da controllare dopo
-      login, in particolare (1) che `ANTHROPIC_API_KEY` sia configurata e la
-      chat risponda, (2) che i numeri di riepilogo mostrati alla chat
-      corrispondano a quelli reali, (3) che il pulsante "Ricalcola rendimenti
-      storici strumenti" risolva correttamente i ticker Yahoo per i 18
-      strumenti in posizione (verificare a campione che il ticker risolto sia
-      davvero lo strumento giusto, non un omonimo), (4) che il CAGR di
-      default nelle proiezioni torni con un conto a mano dopo il ricalcolo.
+      login, in particolare:
+      1. Che `ANTHROPIC_API_KEY` sia configurata e la chat risponda.
+      2. Che i numeri di riepilogo mostrati alla chat corrispondano a quelli
+         reali.
+      3. **Tutti** i `tax_instruments.yahoo_ticker` risolti automaticamente da
+         `calcola-rendimenti-storici` vanno verificati **uno per uno** dall'utente
+         (rischio concreto di omonimia — es. "GOLD" non è univoco su Yahoo Finance):
+         la colonna esiste già proprio per questo, sovrascrivibile a mano quando la
+         risoluzione automatica ha scelto lo strumento sbagliato.
+      4. Che l'opzione "CAGR precalcolato dalle holdings attuali" sia effettivamente
+         testabile: al momento di questa sessione le holdings/posizioni non
+         risultano caricate/aggiornate lato utente, quindi il flusso reale
+         (posizioni → rendimenti per strumento → CAGR pesato) non è stato
+         verificabile end-to-end — da ripetere quando le posizioni saranno
+         sincronizzate.
+      5. Che il CAGR di default nelle proiezioni torni con un conto a mano dopo
+         il ricalcolo.

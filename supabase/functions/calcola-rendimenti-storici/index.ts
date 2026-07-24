@@ -1,17 +1,29 @@
 // calcola-rendimenti-storici — Fase 5 (ESPERTO DI FINANZA), raffinamento proiezioni:
 // per ogni strumento in posizione aperta, risolve il ticker Yahoo Finance per ISIN
-// (cachato in tax_instruments.yahoo_ticker) e calcola il CAGR sugli ultimi ~5 anni di
-// prezzi (adjclose). Da rilanciare a mano quando serve un refresh — non un cron.
+// (cachato in tax_instruments.yahoo_ticker) e calcola il CAGR sulla finestra più
+// lunga disponibile tra 5/3/1 anni (un solo fetch di ~5 anni di prezzi settimanali
+// adjclose, le tre finestre sono sotto-intervalli dello stesso dato — nessuna
+// chiamata Yahoo aggiuntiva). Da rilanciare a mano quando serve un refresh — non
+// un cron.
 //
 // Mai un dato fabbricato: se la risoluzione del ticker o il fetch falliscono, o lo
-// storico disponibile è troppo corto (<2 anni), lo strumento resta senza
-// rendimento_5y_pct e le proiezioni usano il fallback per categoria.
+// storico disponibile è troppo corto anche per la finestra minima (1 anno), lo
+// strumento resta senza rendimento_5y_pct e le proiezioni usano il fallback per
+// categoria. anni_dati_disponibili rende trasparente quale finestra è stata
+// effettivamente usata (~5, ~3 o ~1 anno).
 import { corsHeaders } from "../_shared/cors.ts";
 import { createAdminClient } from "../_shared/supabase-admin.ts";
 
 const YF_HEADERS = { "User-Agent": "Mozilla/5.0 (compatible; Budgeting/1.0)", "Accept": "application/json" };
 const ANNI_MASSIMI = 5;
-const ANNI_MINIMI = 2;
+// Finestre candidate in ordine di preferenza (più lunga prima) — "minimo" è lo
+// span effettivo di dati richiesto perché la finestra sia accettata (tollerante
+// a qualche settimana di differenza per festivi/giorni non di trading).
+const FINESTRE = [
+  { anni: 5, minimo: 4 },
+  { anni: 3, minimo: 2.5 },
+  { anni: 1, minimo: 0.8 },
+];
 
 function json(status: number, body: unknown) {
   return new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -71,7 +83,7 @@ Deno.serve(async (req: Request) => {
     const period2 = Math.floor(Date.now() / 1000);
     const period1 = period2 - ANNI_MASSIMI * 365.25 * 86400;
 
-    const dettaglio: Record<string, { yahoo_ticker?: string; rendimento_5y_pct?: number; anni_dati_disponibili?: number; skipped?: boolean; reason?: string }> = {};
+    const dettaglio: Record<string, { yahoo_ticker?: string; rendimento_5y_pct?: number; anni_dati_disponibili?: number; finestra_anni?: number; skipped?: boolean; reason?: string }> = {};
 
     for (const strumento of strumenti ?? []) {
       const chiave = strumento.symbol ?? strumento.id;
@@ -97,40 +109,51 @@ Deno.serve(async (req: Request) => {
         continue;
       }
 
-      let primoIdx = -1, ultimoIdx = -1;
+      const validi: { ts: number; close: number }[] = [];
       for (let i = 0; i < hist.closes.length; i++) {
-        if (hist.closes[i] != null && (hist.closes[i] as number) > 0) {
-          if (primoIdx === -1) primoIdx = i;
-          ultimoIdx = i;
-        }
+        const c = hist.closes[i];
+        if (c != null && c > 0) validi.push({ ts: hist.timestamps[i], close: c });
       }
-      if (primoIdx === -1 || ultimoIdx === primoIdx) {
+      if (validi.length < 2) {
         dettaglio[chiave] = { yahoo_ticker: yahooTicker, skipped: true, reason: "prezzi insufficienti" };
         await new Promise((r) => setTimeout(r, 300));
         continue;
       }
 
-      const anni = (hist.timestamps[ultimoIdx] - hist.timestamps[primoIdx]) / (365.25 * 86400);
-      if (anni < ANNI_MINIMI) {
-        dettaglio[chiave] = { yahoo_ticker: yahooTicker, skipped: true, reason: `storico troppo corto (${anni.toFixed(1)} anni)` };
+      const ultimo = validi[validi.length - 1];
+      let trovato: { rendimentoPct: number; anniEffettivi: number; finestraAnni: number } | null = null;
+      for (const finestra of FINESTRE) {
+        const soglia = ultimo.ts - finestra.anni * 365.25 * 86400;
+        const primo = validi.find((v) => v.ts >= soglia);
+        if (!primo || primo === ultimo) continue;
+        const anniEffettivi = (ultimo.ts - primo.ts) / (365.25 * 86400);
+        if (anniEffettivi >= finestra.minimo) {
+          trovato = { rendimentoPct: (Math.pow(ultimo.close / primo.close, 1 / anniEffettivi) - 1) * 100, anniEffettivi, finestraAnni: finestra.anni };
+          break;
+        }
+      }
+
+      if (!trovato) {
+        dettaglio[chiave] = { yahoo_ticker: yahooTicker, skipped: true, reason: "storico troppo corto anche per la finestra minima (1 anno)" };
         await new Promise((r) => setTimeout(r, 300));
         continue;
       }
 
-      const primo = hist.closes[primoIdx] as number;
-      const ultimo = hist.closes[ultimoIdx] as number;
-      const rendimentoPct = (Math.pow(ultimo / primo, 1 / anni) - 1) * 100;
-
       const { error: updErr } = await admin.from("tax_instruments").update({
         yahoo_ticker: yahooTicker,
-        rendimento_5y_pct: Math.round(rendimentoPct * 100) / 100,
-        anni_dati_disponibili: Math.round(anni * 10) / 10,
+        rendimento_5y_pct: Math.round(trovato.rendimentoPct * 100) / 100,
+        anni_dati_disponibili: Math.round(trovato.anniEffettivi * 10) / 10,
         rendimento_5y_calcolato_il: new Date().toISOString(),
       }).eq("id", strumento.id);
 
       dettaglio[chiave] = updErr
         ? { yahoo_ticker: yahooTicker, skipped: true, reason: `errore salvataggio: ${updErr.message}` }
-        : { yahoo_ticker: yahooTicker, rendimento_5y_pct: Math.round(rendimentoPct * 100) / 100, anni_dati_disponibili: Math.round(anni * 10) / 10 };
+        : {
+          yahoo_ticker: yahooTicker,
+          rendimento_5y_pct: Math.round(trovato.rendimentoPct * 100) / 100,
+          anni_dati_disponibili: Math.round(trovato.anniEffettivi * 10) / 10,
+          finestra_anni: trovato.finestraAnni,
+        };
 
       await new Promise((r) => setTimeout(r, 300));
     }
