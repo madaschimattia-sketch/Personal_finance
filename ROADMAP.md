@@ -644,6 +644,24 @@ Stessa pipeline Drive/Claude di UTENZE: documento grezzo → dato normalizzato.
       ricorrente mensile 4.395,63€ (mediana su 38 buste paga) → **rapporto
       21,4%, giudizio sostenibile**, margine 3.456,83€/mese, fondo emergenza
       target 2.816,40€–5.632,80€.
+- [x] **`spese_fisse_manuali`** (migration `0026`) — costi fissi personali a
+      inserimento manuale, senza fattura/PDF e senza legame a un domicilio
+      (a differenza di `utenze_bollette`): subscription digitali (streaming,
+      software, fitness) + su richiesta esplicita dell'utente anche
+      assicurazione/bollo auto, canone bancario, altre assicurazioni
+      (casa/vita/salute) — **non** selezionato invece un finanziamento/leasing
+      auto (non applicabile all'utente). Colonne: `intestatario_id` NOT NULL,
+      `nome`, `categoria` (streaming/software/fitness/veicolo/assicurazione/
+      bancario/altro), `importo`, `frequenza` (stesso enum di
+      `utenze_bollette`), `data_inizio`/`data_fine`/`attivo` (per gestire
+      disdette senza cancellare lo storico). `calcola-budget-sostenibilita`
+      aggiornata (v3): legge le righe `attivo=true` (filtrate per
+      `intestatario_id` se passato) e le aggiunge a `bolletteInput` **senza
+      scalarle per quota** (a differenza delle utenze del domicilio
+      cointestato, sono già per intero il costo della singola persona) —
+      riusa il motore puro invariato. Tabella creata, **ancora vuota**: i
+      dati reali (Netflix, Spotify, Anthropic, RC auto, ecc.) da inserire
+      nella prossima sessione.
 - [ ] **Vista frontend** — non ancora costruita (stesso pattern di
       Portafoglio/Fiscale: pagina che invoca `calcola-budget-sostenibilita` e
       mostra il risultato in forma leggibile).

@@ -93,6 +93,22 @@ Deno.serve(async (req: Request) => {
         frequenza: b.frequenza as string | null,
       };
     });
+
+    // Spese fisse manuali (subscription, auto, assicurazioni, banca): personali
+    // dell'intestatario, nessuna quota da applicare (già il suo costo per intero).
+    // Solo le righe attive contribuiscono al calcolo ricorrente.
+    let speseQuery = admin.from("spese_fisse_manuali").select("categoria, importo, frequenza").eq("user_id", userId).eq("attivo", true);
+    if (intestatarioId) speseQuery = speseQuery.eq("intestatario_id", intestatarioId);
+    const { data: speseFisse, error: speseErr } = await speseQuery;
+    if (speseErr) return json(500, { error: `Lettura spese_fisse_manuali fallita: ${speseErr.message}` });
+    for (const s of speseFisse ?? []) {
+      bolletteInput.push({
+        categoria: s.categoria as string,
+        importo: Number(s.importo),
+        frequenza: s.frequenza as string,
+      });
+    }
+
     const bustePagaInput: BustaPagaInput[] = bustePaga.map((b) => ({
       periodoDa: b.periodo_da as string,
       netto: Number(b.netto),
