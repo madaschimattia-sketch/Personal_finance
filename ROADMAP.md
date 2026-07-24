@@ -671,9 +671,16 @@ Stessa pipeline Drive/Claude di UTENZE: documento grezzo → dato normalizzato.
       **987,74€/mese** (938,80€ utenze/casa + 48,94€ subscription), reddito
       ricorrente mensile 4.395,63€ → **rapporto 22,47%, giudizio sostenibile**,
       margine 3.407,89€/mese, fondo emergenza target 2.963,22€–5.926,44€.
-- [ ] **Vista frontend** — non ancora costruita (stesso pattern di
-      Portafoglio/Fiscale: pagina che invoca `calcola-budget-sostenibilita` e
-      mostra il risultato in forma leggibile).
+- [x] **Vista frontend** — `pages/budget.html` + `js/client/budget.js`, stesso
+      pattern di Portafoglio/Fiscale: invoca `calcola-budget-sostenibilita`
+      (per ora fisso su Mattia Madaschi, unico con buste paga caricate; da
+      trasformare in selettore se in futuro anche Martina avrà introiti) e
+      mostra rapporto costi/reddito, giudizio (badge sostenibile/attenzione/
+      rischio), margine, fondo emergenza target, costi per categoria e trend.
+      Link "Budget" aggiunto alla nav di tutte le pagine. Verificata solo la
+      resa statica del fragment (nessun errore console); il flusso
+      autenticato va controllato dall'utente dopo login (nessuna credenziale
+      inserita dall'assistente, per policy).
 - [ ] **Personalizzazione soglie per persona/fascia di reddito** — struttura
       pronta (`config_budget_parametri.intestatario_id`), metodologia di
       calibrazione non ancora definita (decisione esplicitamente rimandata
