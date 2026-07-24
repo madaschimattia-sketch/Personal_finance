@@ -33,5 +33,10 @@ pre { background: #0b0c0e; border: 1px solid var(--bordo); padding: 1rem; border
 .tabella-dati tfoot th { border-top: 2px solid var(--bordo); border-bottom: none; }
 .positivo { color: #4caf7d; }
 .negativo { color: var(--errore); }
+.avviso { color: #e0a83e; }
 .riga-anno { display: inline-block; width: auto; margin-right: 1rem; }
 .riga-anno select { width: auto; }
+
+.budget-riepilogo { display: flex; flex-wrap: wrap; gap: 1rem; margin: 1rem 0 1.5rem; }
+.budget-card { flex: 1 1 200px; background: #1b1e24; border: 1px solid var(--bordo); border-radius: 6px; padding: 0.75rem 1rem; display: flex; flex-direction: column; gap: 0.35rem; }
+.budget-card strong { font-size: 1.15em; }

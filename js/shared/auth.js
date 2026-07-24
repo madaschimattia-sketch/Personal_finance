@@ -5,6 +5,7 @@ const PAGINE_AUTENTICATE = {
   home: null,
   portafoglio: initPortafoglio,
   fiscale: initFiscale,
+  budget: initBudget,
   test: initTest,
 };
 
