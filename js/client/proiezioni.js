@@ -3,14 +3,17 @@
 // quello gia' letto via RLS): valore iniziale + rendimento atteso + contributo
 // mensile + orizzonte, tutti modificabili dall'utente in tempo reale.
 //
-// Rendimento atteso di default = media pesata delle ipotesi di mercato per
-// categoria (config_rendimenti_attesi) sull'ALLOCAZIONE ATTUALE del portafoglio
-// (ultimo snapshot conto_nav_giornaliero) — non una previsione certa, solo un
-// punto di partenza dichiarato e modificabile. Il contributo mensile di default
-// e' il margine mensile calcolato in Fase 4 (calcola-budget-sostenibilita).
+// Rendimento atteso di default = media pesata, per il VALORE DI POSIZIONE
+// ATTUALE di ogni strumento, del suo CAGR storico reale (tax_instruments.
+// rendimento_5y_pct, calcolato da calcola-rendimenti-storici sui prezzi Yahoo
+// Finance) — dove non disponibile (ticker non risolto, storico insufficiente),
+// fallback sull'ipotesi generica di mercato per categoria
+// (config_rendimenti_attesi). Non una previsione certa, solo un punto di
+// partenza dichiarato e modificabile. Il contributo mensile di default e' il
+// margine mensile calcolato in Fase 4 (calcola-budget-sostenibilita).
 const PROIEZIONI_INTESTATARIO_ID = "37af7f90-79d8-42e6-b172-367ccbd38846";
-const PROIEZIONI_CATEGORIE = ["cash", "stock", "bonds", "funds", "commodities", "crypto"];
 const PROIEZIONI_ANNI_MAX = 40;
+const CATEGORIA_IBKR_TO_CONFIG = { STK: "stock", BOND: "bonds", FUND: "funds", CMDTY: "commodities", CRYPTO: "crypto" };
 
 let proiezioniChart = null;
 
@@ -71,12 +74,12 @@ function ricalcolaProiezione() {
   disegnaGrafico(serie);
 }
 
-async function initProiezioni() {
+async function caricaDefaultPortafoglio() {
   const infoEl = document.getElementById("proiezioni-info");
 
-  const [{ data: nav }, { data: rendimenti }] = await Promise.all([
+  const [{ data: nav }, { data: rendimentiCategoria }] = await Promise.all([
     supabaseClient.from("conto_nav_giornaliero")
-      .select("report_date, cash_eur, stock_eur, bonds_eur, funds_eur, commodities_eur, crypto_eur, total_eur")
+      .select("report_date, cash_eur, total_eur")
       .order("report_date", { ascending: false }).limit(1).maybeSingle(),
     supabaseClient.from("config_rendimenti_attesi").select("categoria, rendimento_atteso_pct"),
   ]);
@@ -85,17 +88,47 @@ async function initProiezioni() {
   let valoreIniziale = 0;
   if (nav && Number(nav.total_eur) > 0) {
     valoreIniziale = Number(nav.total_eur);
-    const rendimentoPerCategoria = new Map((rendimenti ?? []).map((r) => [r.categoria, Number(r.rendimento_atteso_pct)]));
-    let sommaPesata = 0;
-    for (const cat of PROIEZIONI_CATEGORIE) {
-      const valoreCategoria = Number(nav[`${cat}_eur`] ?? 0);
-      sommaPesata += valoreCategoria * (rendimentoPerCategoria.get(cat) ?? 0);
+    const rendimentoPerCategoria = new Map((rendimentiCategoria ?? []).map((r) => [r.categoria, Number(r.rendimento_atteso_pct)]));
+
+    const { data: dataUltima } = await supabaseClient.from("posizioni_aperte_ibkr")
+      .select("report_date").order("report_date", { ascending: false }).limit(1).maybeSingle();
+    let posizioni = [];
+    if (dataUltima) {
+      const { data } = await supabaseClient.from("posizioni_aperte_ibkr")
+        .select("conid, asset_category, position_value_eur").eq("report_date", dataUltima.report_date);
+      posizioni = data ?? [];
+    }
+    const conidUnici = [...new Set(posizioni.map((p) => p.conid))];
+    const { data: strumenti } = conidUnici.length > 0
+      ? await supabaseClient.from("tax_instruments").select("conid, rendimento_5y_pct").in("conid", conidUnici)
+      : { data: [] };
+    const rendimentoPerConid = new Map((strumenti ?? []).map((s) => [s.conid, s.rendimento_5y_pct != null ? Number(s.rendimento_5y_pct) : null]));
+
+    let sommaPesata = Number(nav.cash_eur ?? 0) * (rendimentoPerCategoria.get("cash") ?? 0);
+    let nReale = 0, nFallback = 0;
+    for (const p of posizioni) {
+      const valore = Number(p.position_value_eur ?? 0);
+      const rendimentoReale = rendimentoPerConid.get(p.conid);
+      if (rendimentoReale != null) {
+        sommaPesata += valore * rendimentoReale;
+        nReale++;
+      } else {
+        const rendimentoFallback = rendimentoPerCategoria.get(CATEGORIA_IBKR_TO_CONFIG[p.asset_category]) ?? 0;
+        sommaPesata += valore * rendimentoFallback;
+        nFallback++;
+      }
     }
     cagrDefault = sommaPesata / valoreIniziale;
-    infoEl.textContent = `Valore iniziale e allocazione dall'ultimo snapshot patrimonio (${nav.report_date}). Rendimento atteso stimato pesando l'allocazione attuale con le ipotesi di mercato per categoria — modificabile liberamente qui sotto.`;
+    infoEl.textContent = `Valore iniziale dall'ultimo snapshot patrimonio (${nav.report_date}). Rendimento atteso: media pesata per valore di posizione, ${nReale} strumento/i con CAGR storico reale (~5 anni) e ${nFallback} su ipotesi generica per categoria — modificabile liberamente qui sotto.`;
   } else {
     infoEl.textContent = "Nessuno snapshot patrimonio disponibile: valore iniziale e rendimento di default a 0, inseriscili a mano.";
   }
+
+  return { valoreIniziale, cagrDefault };
+}
+
+async function initProiezioni() {
+  const { valoreIniziale, cagrDefault } = await caricaDefaultPortafoglio();
 
   let contributoDefault = 0;
   try {
@@ -115,4 +148,22 @@ async function initProiezioni() {
     document.getElementById(id).addEventListener("input", ricalcolaProiezione);
   });
   ricalcolaProiezione();
+
+  document.getElementById("btn-ricalcola-rendimenti").addEventListener("click", async () => {
+    const statoEl = document.getElementById("proiezioni-stato-rendimenti");
+    statoEl.textContent = "Ricalcolo rendimenti storici in corso (può richiedere qualche secondo)...";
+    try {
+      const risultato = await invokeFunction("calcola-rendimenti-storici", {});
+      const dettaglio = risultato.dettaglio ?? {};
+      const nOk = Object.values(dettaglio).filter((d) => !d.skipped).length;
+      const nSkip = Object.values(dettaglio).filter((d) => d.skipped).length;
+      statoEl.textContent = `Fatto: ${nOk} strumento/i aggiornati, ${nSkip} saltati (vedi console per il dettaglio).`;
+      console.log("calcola-rendimenti-storici:", dettaglio);
+      const { cagrDefault: nuovoCagr } = await caricaDefaultPortafoglio();
+      document.getElementById("proiezioni-rendimento").value = nuovoCagr.toFixed(1);
+      ricalcolaProiezione();
+    } catch (err) {
+      statoEl.textContent = `Errore: ${err.message}`;
+    }
+  });
 }

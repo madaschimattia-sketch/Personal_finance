@@ -731,9 +731,33 @@ contributo mensile, orizzonte — liberamente modificabile dall'utente).
       2025-12-31 — la proiezione parte da quel valore/quell'allocazione finché
       non arriva uno snapshot più recente (dipende dalla sincronizzazione
       IBKR di Fase 1, non affrontata in questa sessione).
+- [x] **Rendimento per singolo strumento (raffinamento confermato
+      dall'utente)** — `tax_instruments` estesa (migration `0030`) con
+      `yahoo_ticker` (override manuale, stesso pattern di
+      `etf_master.yahoo_ticker` in LMadvisory — qui non c'è una colonna
+      "exchange" da cui generare un ticker, quindi il ticker Yahoo viene
+      risolto per ISIN alla prima esecuzione e cachato, sovrascrivibile a
+      mano in caso di collisione di simbolo, es. "GOLD" non è univoco),
+      `rendimento_5y_pct`, `anni_dati_disponibili` (< 5 se lo strumento è
+      quotato da meno tempo; sotto 2 anni il calcolo viene scartato per bassa
+      significatività), `rendimento_5y_calcolato_il`. Edge function
+      `calcola-rendimenti-storici` (da rilanciare a mano, non un cron):
+      risolve il ticker Yahoo per ISIN via l'endpoint di ricerca, scarica
+      ~5 anni di prezzi settimanali (adjclose) e calcola il CAGR realizzato.
+      Mai un dato fabbricato: dove la risoluzione o il fetch falliscono resta
+      `NULL` e le proiezioni usano il fallback per categoria di
+      `config_rendimenti_attesi`. `proiezioni.js` ora pesa il CAGR per
+      **valore di posizione attuale** di ogni strumento (reale dove
+      disponibile, fallback altrimenti) invece della sola categoria
+      NAV-bucket; pulsante "Ricalcola rendimenti storici strumenti" nella
+      pagina Proiezioni per lanciarlo (richiede login, non eseguito da
+      questa sessione).
 - [ ] **Verifica utente** — non testato in flusso autenticato reale (nessuna
       credenziale inserita dall'assistente, per policy): da controllare dopo
       login, in particolare (1) che `ANTHROPIC_API_KEY` sia configurata e la
       chat risponda, (2) che i numeri di riepilogo mostrati alla chat
-      corrispondano a quelli reali, (3) che il CAGR di default nelle
-      proiezioni torni con un conto a mano.
+      corrispondano a quelli reali, (3) che il pulsante "Ricalcola rendimenti
+      storici strumenti" risolva correttamente i ticker Yahoo per i 18
+      strumenti in posizione (verificare a campione che il ticker risolto sia
+      davvero lo strumento giusto, non un omonimo), (4) che il CAGR di
+      default nelle proiezioni torni con un conto a mano dopo il ricalcolo.
