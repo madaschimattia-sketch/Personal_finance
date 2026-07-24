@@ -768,11 +768,45 @@ contributo mensile, orizzonte — liberamente modificabile dall'utente).
          (rischio concreto di omonimia — es. "GOLD" non è univoco su Yahoo Finance):
          la colonna esiste già proprio per questo, sovrascrivibile a mano quando la
          risoluzione automatica ha scelto lo strumento sbagliato.
-      4. Che l'opzione "CAGR precalcolato dalle holdings attuali" sia effettivamente
-         testabile: al momento di questa sessione le holdings/posizioni non
-         risultano caricate/aggiornate lato utente, quindi il flusso reale
-         (posizioni → rendimenti per strumento → CAGR pesato) non è stato
-         verificabile end-to-end — da ripetere quando le posizioni saranno
-         sincronizzate.
+      4. ~~Che l'opzione "CAGR precalcolato dalle holdings attuali" sia
+         testabile~~ — risolto: `ibkr-flex-pull` rilanciato con la query YTD
+         IBKR (Period: Year to Date, stesso `flex_query_id` configurato),
+         posizioni/NAV ora aggiornati al 2026-07-23 (672 righe NAV, 19
+         posizioni aperte). Resta da rilanciare anche `calcola-lotti-fiscali`
+         per allineare `tax_lots`/`tax_events` (Portafoglio/Fiscale) ai nuovi
+         trade.
       5. Che il CAGR di default nelle proiezioni torni con un conto a mano dopo
          il ricalcolo.
+
+## Fase 6 — LAYOUT FRONTEND (React + Tailwind) — in corso
+
+Su richiesta esplicita dell'utente ("voglio un frontend super moderno"):
+identità "Bold Mono" scelta dopo un giro di mockup comparativi (A-I,
+incluse varianti bordeaux/mattone e blu su richiesta) — fondo grigio chiaro,
+card patrimonio nera, accento verde lime, dashboard unica con drill-down,
+parità desktop/mobile da subito.
+
+- [x] **Scaffold** — nuovo progetto `web/` (Vite + React 18 + React Router +
+      Tailwind), **non tocca il sito vanilla esistente** (stesso pattern
+      strangler-fig del CRM di LMadvisory). Token di design in
+      `tailwind.config.js` (colori/radius/font Bold Mono) — cambiare identità
+      visiva in futuro è modificare quei valori, non i componenti.
+- [x] **Dashboard** — patrimonio netto reale + sparkline, allocazione,
+      card **Portafoglio** e **Utenze** in evidenza (costi fissi reali, non
+      la sostenibilità — priorità confermata dall'utente), card **Budget**
+      volutamente secondaria ("Extra"), teaser Proiezioni/Fiscale.
+- [x] **Viste di dettaglio** — Portafoglio (holdings), Utenze (bollette +
+      spese fisse reali), Budget (motore sostenibilità), Proiezioni
+      (calcolatore interattivo con grafico SVG + pulsante ricalcolo
+      rendimenti storici), Fiscale (quadri RT/RM/RW/RP), Chat — stessa
+      logica di aggregazione client-side del sito vanilla, portata in
+      componenti React.
+- [x] **Deploy** — Vercel, team **madaprojects**, progetto `budgeting-web`:
+      https://budgeting-web-madaprojects.vercel.app. **Deployment
+      Protection di Vercel va disabilitata dall'utente** (Project Settings →
+      Deployment Protection) — oggi blocca l'accesso normale perché l'app ha
+      già il proprio login Supabase, la protezione Vercel è ridondante.
+- [ ] **Sistemare i numeri** — l'utente ha confermato a voce che "certe cose
+      non tornano" nella dashboard/viste reali; deciso esplicitamente di
+      finalizzare prima tutte le funzionalità e sistemare i numeri in un
+      passaggio dedicato successivo (non ancora fatto in questa sessione).
