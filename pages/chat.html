@@ -1,0 +1,27 @@
+<div class="shell">
+  <nav class="topnav">
+    <strong>Budgeting</strong>
+    <a href="#" data-page="portafoglio">Portafoglio</a>
+    <a href="#" data-page="fiscale">Fiscale</a>
+    <a href="#" data-page="budget">Budget</a>
+    <a href="#" data-page="chat">Chat</a>
+    <a href="#" data-page="proiezioni">Proiezioni</a>
+    <a href="#" data-page="test">Test edge function</a>
+    <span id="nav-email" class="nav-email"></span>
+    <button id="btn-logout-nav">Esci</button>
+  </nav>
+
+  <h1>Assistente</h1>
+  <p class="nota">
+    Vede solo aggregati (patrimonio totale, imposte per anno, esito budget) — mai il
+    dettaglio riga per riga. Non fornisce raccomandazioni di investimento specifiche.
+  </p>
+  <button id="btn-chat-nuova">Nuova conversazione</button>
+
+  <div id="chat-messaggi" class="chat-messaggi"></div>
+  <p id="chat-errore" class="errore"></p>
+  <form id="form-chat" class="chat-form">
+    <textarea id="chat-input" rows="2" placeholder="Scrivi un messaggio..."></textarea>
+    <button type="submit">Invia</button>
+  </form>
+</div>

@@ -686,6 +686,54 @@ Stessa pipeline Drive/Claude di UTENZE: documento grezzo → dato normalizzato.
       calibrazione non ancora definita (decisione esplicitamente rimandata
       dall'utente).
 
-## Fase 5 — ESPERTO DI FINANZA
+## Fase 5 — ESPERTO DI FINANZA — in corso
 
-Dipende da BUDGET. Non iniziata.
+Scope deciso con l'utente: due blocchi — **assistente chat** (aggregati soltanto,
+mai il dettaglio riga per riga, scelta esplicita per semplicità) e **proiezioni
+interattive** (rendimento atteso di default = CAGR pesato sull'allocazione
+attuale del portafoglio, ma ogni variabile — valore iniziale, rendimento,
+contributo mensile, orizzonte — liberamente modificabile dall'utente).
+
+- [x] **Assistente chat** — `chat_conversazioni`/`chat_messaggi` (migration
+      `0028`), stesso pattern già in produzione su LMadvisory ma adattato a
+      un'app single-user (`user_id` diretto, nessun `cliente_id`/advisor
+      esterno). Edge function `chat-assistente` (Claude Haiku 4.5,
+      JWT-protected): costruisce il contesto da **soli aggregati** — ultimo
+      snapshot `conto_nav_giornaliero` (patrimonio totale + composizione),
+      `tax_events` sommati per anno (ultimi 3), ed **esito di
+      `calcola-budget-sostenibilita`** invocata internamente inoltrando lo
+      stesso JWT della richiesta (nessuna duplicazione della logica di
+      sostenibilità). Stesse regole di compliance di LMadvisory: mai
+      raccomandazioni di investimento specifiche, ipotesi sempre etichettate
+      come tali. **Richiede il secret `ANTHROPIC_API_KEY`** configurato su
+      questo progetto Supabase (Edge Functions → Secrets) — non verificato
+      dall'assistente, va controllato/impostato dall'utente. Frontend:
+      `pages/chat.html` + `js/client/chat.js`, conversazione unica continua
+      (riprende l'ultima esistente all'apertura, "Nuova conversazione" la
+      azzera lato client).
+- [x] **Proiezioni interattive** — `config_rendimenti_attesi` (migration
+      `0029`): ipotesi di rendimento annuo per i 6 bucket di
+      `conto_nav_giornaliero` (cash/stock/bonds/funds/commodities/crypto —
+      `options` escluso, nessuna ipotesi di deriva di lungo periodo sensata
+      per posizioni derivate), seed con medie storiche di mercato generiche
+      (stock 7%, bonds 3%, funds 6%, commodities 4%, crypto 10%, cash 2%),
+      liberamente modificabili, mai un consiglio su uno strumento specifico.
+      Frontend puro client-side (nessuna nuova edge function: calcolo di
+      crescita composta, nessun dato sensibile oltre a quanto già letto via
+      RLS) — `pages/proiezioni.html` + `js/client/proiezioni.js`, grafico
+      Chart.js 4.4.1 (stessa libreria/versione di LMadvisory). Default:
+      valore iniziale + rendimento atteso (CAGR pesato sull'allocazione
+      corrente, calcolato lato client) dall'ultimo snapshot
+      `conto_nav_giornaliero`; contributo mensile = margine mensile da
+      `calcola-budget-sostenibilita`; orizzonte 20 anni. Tutti i 4 parametri
+      sono slider/input liberamente modificabili, ricalcolo istantaneo.
+      **Nota**: l'ultimo snapshot `conto_nav_giornaliero` disponibile è del
+      2025-12-31 — la proiezione parte da quel valore/quell'allocazione finché
+      non arriva uno snapshot più recente (dipende dalla sincronizzazione
+      IBKR di Fase 1, non affrontata in questa sessione).
+- [ ] **Verifica utente** — non testato in flusso autenticato reale (nessuna
+      credenziale inserita dall'assistente, per policy): da controllare dopo
+      login, in particolare (1) che `ANTHROPIC_API_KEY` sia configurata e la
+      chat risponda, (2) che i numeri di riepilogo mostrati alla chat
+      corrispondano a quelli reali, (3) che il CAGR di default nelle
+      proiezioni torni con un conto a mano.

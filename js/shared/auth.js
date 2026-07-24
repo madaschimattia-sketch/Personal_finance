@@ -6,6 +6,8 @@ const PAGINE_AUTENTICATE = {
   portafoglio: initPortafoglio,
   fiscale: initFiscale,
   budget: initBudget,
+  chat: initChat,
+  proiezioni: initProiezioni,
   test: initTest,
 };
 

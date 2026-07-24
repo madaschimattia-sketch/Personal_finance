@@ -1,0 +1,40 @@
+<div class="shell">
+  <nav class="topnav">
+    <strong>Budgeting</strong>
+    <a href="#" data-page="portafoglio">Portafoglio</a>
+    <a href="#" data-page="fiscale">Fiscale</a>
+    <a href="#" data-page="budget">Budget</a>
+    <a href="#" data-page="chat">Chat</a>
+    <a href="#" data-page="proiezioni">Proiezioni</a>
+    <a href="#" data-page="test">Test edge function</a>
+    <span id="nav-email" class="nav-email"></span>
+    <button id="btn-logout-nav">Esci</button>
+  </nav>
+
+  <h1>Proiezioni patrimonio</h1>
+  <p class="nota">
+    Simulazione what-if: composta a partire da valore iniziale, rendimento atteso,
+    contributo mensile e orizzonte — tutti modificabili. Le ipotesi di rendimento
+    sono medie storiche di mercato per categoria, non previsioni certe né
+    raccomandazioni su uno strumento specifico.
+  </p>
+  <p id="proiezioni-info" class="nota"></p>
+
+  <div class="proiezioni-controlli">
+    <label>Valore iniziale (EUR)
+      <input type="number" id="proiezioni-valore-iniziale" step="100">
+    </label>
+    <label>Contributo mensile (EUR)
+      <input type="number" id="proiezioni-contributo" step="10">
+    </label>
+    <label>Rendimento atteso annuo <span id="proiezioni-rendimento-val" class="proiezioni-valore"></span>
+      <input type="range" id="proiezioni-rendimento" min="-5" max="15" step="0.1">
+    </label>
+    <label>Orizzonte <span id="proiezioni-anni-val" class="proiezioni-valore"></span>
+      <input type="range" id="proiezioni-anni" min="1" max="40" step="1">
+    </label>
+  </div>
+
+  <p id="proiezioni-risultato"></p>
+  <canvas id="proiezioni-grafico" height="100"></canvas>
+</div>
