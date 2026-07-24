@@ -494,6 +494,92 @@ Stessa pipeline Drive/Claude di UTENZE: documento grezzo → dato normalizzato.
 - [ ] **Ramo autonomo (partita IVA)** — non iniziato, rimandato finché non
       serve davvero (nessun dato reale, nessuna urgenza dichiarata).
 
+## Fase Verifica — riscontro utente
+
+> L'utente ha chiesto di raccogliere qui, in un unico posto, tutti i punti che
+> ha segnalato di voler ricontrollare di persona prima di fidarsi dei dati
+> (query SQL dirette, cifre trascritte a mano dai PDF, assunzioni fatte in
+> assenza di conferma). Non è un lavoro da fare in questa sessione: è la lista
+> di spunta per la verifica finale dell'utente. Aggiornare (spuntare / togliere
+> / aggiungere righe) man mano che i punti vengono chiusi.
+
+### INVESTIMENTI
+
+- [ ] **Riconciliazione RT 2025 post-fix bug transactionID** — il riporto
+      minusvalenze whitelist è stato ricalcolato da 103,74€ a 600,90€ dopo aver
+      backfillato 5 vendite (T-bond + 4 OAT) perse per un bug di collisione
+      `transactionID`. Imposta totale RT 2025 invariata (1.035,72€) ma vale la
+      pena un controllo incrociato con l'estratto conto IBKR.
+- [ ] **RW — 4 casi limite comprati e venduti nello stesso anno** (T-bond USA
+      `US91282CBQ33`, WBTC, NVDA, LVO) — verificare col commercialista se un
+      possesso infrannuale richiede comunque una riga di monitoraggio RW
+      (norma non del tutto univoca sul punto).
+- [ ] **Classificazione OICR/non-OICR** — verificata via web search per i casi
+      meno ovvi (WisdomTree Physical Bitcoin, Amundi Physical Gold, Carlyle
+      Secured Lending) ed **estesa per pattern** agli altri fondi della stessa
+      famiglia di emittenti, non tutti verificati singolarmente.
+- [ ] **Minusvalenze OICR non compensabili** (quadro RT) — la reale
+      compensabilità delle minus OICR "armonizzati" post D.Lgs 2011/2012 resta
+      un punto aperto per il commercialista.
+- [ ] **RM — eccedenza credito d'imposta estero non utilizzata** — IBKR non è
+      sostituto d'imposta italiano, va autoliquidato; verificare che il
+      credito d'imposta sia applicato correttamente in dichiarazione.
+- [ ] **`config_fiscale_parametri` anno 2025** — seminato con `verificato=false`
+      (stessi valori del 2026, mai confermati da fonte ufficiale per il 2025).
+- [ ] **IVAFE cash regime fisso non prorato per giorni di possesso** —
+      assunzione da confermare col commercialista se un conto viene aperto o
+      chiuso a metà anno.
+- [ ] **Trasferimenti titoli IN** (`transfer_titoli`) — implementato ma **mai
+      testato su dati reali** (zero occorrenze finora); `data_acquisto` del
+      lotto trasferito è la data del trasferimento, non quella reale.
+- [ ] **Fondo pensione — aliquota in uscita** — funzione pronta ma mai
+      esercitata (nessun riscatto reale, nessun fondo ancora registrato in
+      `fondi_pensione`).
+- [ ] **Whitelist paesi** (134 righe, Decreto 4/9/1996) — elenco non
+      auto-aggiornante: verificare periodicamente se ci sono aggiornamenti
+      (art. 1-bis).
+- [ ] **Vista Portafoglio/Fiscale (frontend)** — struttura e navigazione
+      confermate ok dall'utente, ma i **numeri mostrati** (holdings aggregati,
+      quadri RT/RM/RW/RP) non sono ancora stati controllati nel dettaglio.
+
+### UTENZE (domicilio Milano — Mac Mahon)
+
+- [ ] **Buco bollette luce maggio-novembre 2024** — non caricato, verificare se
+      esistono quelle bollette o se il gap è reale (es. altro fornitore/tariffa
+      in quel periodo).
+- [ ] **Riga AFFITTO** — è un riferimento ai termini contrattuali (rata
+      5.340€/trimestre), **non prova di pagamento** dei singoli trimestri:
+      verificare dall'estratto conto che i bonifici trimestrali corrispondano.
+- [ ] **Quota cointestazione 50/50** (Mattia/Martina in
+      `domicilio_intestatari`) — assunzione di default in assenza di
+      indicazione contraria, confermare che sia la ripartizione corretta.
+- [ ] **Conguaglio condominiale** (2.928,71€ a favore del conduttore, da
+      "Prospetto conguaglio" approvato dalla proprietaria) — verificare che sia
+      stato effettivamente restituito/compensato, e aggiornare quando succede.
+
+### INTROITI (buste paga Generali)
+
+- [ ] **8 mesi con IRPEF/INPS null** (aprile-novembre 2024) — anomalia nel
+      testo estratto (blocco IRPEF mensile assente, sostituito da valori
+      cumulativi progressivi identici per 8 mesi) — verificare sui PDF
+      originali se il dato è recuperabile leggendoli direttamente.
+- [ ] **Luglio 2023 e tredicesima 2023** — blocco "Contributi" con
+      un'anomalia numerica (-13,68 non riconciliabile), `altre_trattenute`
+      lasciato null su queste righe.
+- [ ] **Gennaio 2025 mancante** — il PDF caricato conteneva solo l'intestazione
+      delle colonne, non i dati (probabile scansione non testuale) — ricaricare
+      se si trova una versione leggibile.
+- [ ] **Controllo a campione generale** — vista la mole di trascrizione manuale
+      (38 mesi), ricontrollare almeno qualche mese a caso oltre a quelli già
+      segnalati sopra, in particolare i primi mesi (formato leggermente diverso
+      per via dell'assunzione a metà mese di luglio 2023).
+- [ ] **Dicembre a due righe (2023/2024/2025)** — confermato dall'utente che
+      tredicesima e cedolino di fine mese sono due incassi separati; verificare
+      che l'estratto conto bancario mostri effettivamente due bonifici distinti
+      per ciascun dicembre.
+- [ ] **TFR maturato** — solo campo informativo per periodo, nessun cumulo né
+      collegamento a `fondi_pensione`: verificare se/quando serve integrarlo.
+
 ## Fase 4 — BUDGET
 
 Dipende da INVESTIMENTI + UTENZE + INTROITI. Non iniziata.
