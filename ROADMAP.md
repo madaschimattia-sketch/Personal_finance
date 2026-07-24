@@ -453,26 +453,38 @@ Stessa pipeline Drive/Claude di UTENZE: documento grezzo → dato normalizzato.
       sessione), quindi l'estrazione delle 9 buste paga sotto e' stata fatta
       a mano leggendo il testo dei PDF via Drive, non tramite questa function.
 - [x] **Primo caricamento reale — buste paga Generali** (migration `0022`):
-      **9 righe `introiti_buste_paga`** per Mattia Madaschi, ottobre 2025 →
-      giugno 2026, nessun buco. Lordo/netto/data pagamento estratti con
-      sicurezza (pattern riconoscibile: netto = ultimo importo prima
-      dell'IBAN, seguito dalla data pagamento); addizionali regionale+comunale
-      e alcune trattenute minori (previdenza integrativa, contributo
-      solidarietà, trattenuta buono pasto) chiaramente etichettate nel testo.
-      **IRPEF e contributi INPS lasciati NULL** — il formato busta paga
-      (tabella multi-colonna appiattita in testo lineare, tipico payroll
-      aziendale) non permette di isolarli con sicurezza dalle righe cumulative
-      "Reg. Imponibile Fiscale": stesso principio già seguito per il
-      consuntivo condominiale in Fase 2 (mai fabbricare precisione che non si
-      ha). **Caso particolare dicembre 2025**: il cedolino include la
-      tredicesima (5.283,48€), anticipata il 19/12 con un documento a parte
-      (netto 4.437,61€) poi conguagliata a fine mese — registrata **una sola
-      riga** col netto finale già conguagliato (7.133,79€), per non
-      raddoppiare il conteggio. Caricati anche 3 Certificazioni Uniche
-      (2023/2024/2025) e 3 documenti contrattuali (lettera assunzione,
-      accordo aziendale, bonus/promozione) — non modellati in
-      `introiti_buste_paga` (formato annuale/non periodico), utili in futuro
-      per riconciliazione.
+      Prima versione: 9 righe (solo ott-2025→giu-2026), IRPEF/INPS lasciati
+      null (non isolabili dal testo compresso), dicembre modellato come riga
+      unica. **Corretto integralmente in migration `0023`** dopo che l'utente
+      ha (a) caricato molte più buste paga di quanto risultasse — 38
+      documenti reali, **luglio 2023** (mese di assunzione) **→ giugno
+      2026** — e (b) fornito uno screenshot di un cedolino che rivela la
+      struttura esatta delle colonne (Imponibili/Contributi INPS, Imponibile
+      Fiscale/IRPEF lorda, TFR Previd. Mese, Totale Trattenute, Totale
+      Competenze), confermata anche dall'intestazione di un PDF illeggibile
+      come dati (stesse colonne, stesso ordine). Con la chiave di lettura
+      corretta: **38 righe** `introiti_buste_paga`, di cui **30 con
+      IRPEF/contributi INPS popolati** (letti dalle colonne dedicate,
+      `altre_trattenute` = Totale Trattenute − IRPEF − INPS, così la somma
+      riconcilia sempre esattamente col totale ufficiale del cedolino) e 8
+      lasciate null (aprile-novembre 2024: il blocco IRPEF mensile è assente
+      dal testo estratto per 8 mesi consecutivi, sostituito dagli stessi
+      valori cumulativi progressivi — anomalia del sistema payroll di
+      quel periodo, non del parsing; null per non fabbricare un numero). Il
+      "lordo" e' ora il **Totale Competenze** ufficiale del cedolino (non più
+      una somma manuale di voci scelte a occhio, che aveva sottostimato
+      alcuni mesi con rimborsi/indennità non ovvi). **Dicembre corretto da
+      riga-unica a due righe per anno** (2023/2024/2025): l'utente ha
+      confermato che tredicesima (anticipata a metà mese) e cedolino di fine
+      mese sono **due incassi reali separati**, non uno che netta l'altro —
+      confermato anche numericamente (il rapporto tra "Acconti" e trattenute
+      non torna se si ipotizza una sottrazione, torna esattamente trattandoli
+      come due incassi pieni). Unica lacuna: **gennaio 2025** non caricabile
+      (PDF illeggibile come dati, solo intestazione colonne). Caricati anche
+      3 Certificazioni Uniche (2023/2024/2025) e 3 documenti contrattuali
+      (lettera assunzione, accordo aziendale, bonus/promozione) — non
+      modellati in `introiti_buste_paga` (formato annuale/non periodico),
+      utili in futuro per riconciliazione.
 - [ ] **Viste (per periodo / aggregata / scostamenti busta-vs-busta)** — non
       iniziate, dipendono da avere dati reali in `introiti_buste_paga`.
 - [ ] **TFR e fondo pensione** — decisione di collocazione ancora aperta
