@@ -580,9 +580,77 @@ Stessa pipeline Drive/Claude di UTENZE: documento grezzo → dato normalizzato.
 - [ ] **TFR maturato** — solo campo informativo per periodo, nessun cumulo né
       collegamento a `fondi_pensione`: verificare se/quando serve integrarlo.
 
-## Fase 4 — BUDGET
+## Fase 4 — BUDGET — in corso
 
-Dipende da INVESTIMENTI + UTENZE + INTROITI. Non iniziata.
+> Scope deciso con l'utente: **non** traccia la spesa variabile (niente
+> ingestione estratto conto/carta) — lavora solo su costi fissi (`utenze_bollette`)
+> vs reddito (`introiti_buste_paga`), per capire se i costi fissi sono
+> sostenibili nel lungo periodo e come allocare il margine (fondo emergenza,
+> poi risparmio/investimento). Mai raccomandazioni di prodotto specifico —
+> resta fuori dal perimetro della consulenza regolata (vedi memoria di
+> progetto). "Flessibile e personalizzabile ma con soglie standard per ora" —
+> l'utente ha esplicitamente chiesto una struttura pronta per calibrare le
+> soglie per persona/fascia di reddito in futuro (chi guadagna 100k non ha la
+> stessa % sostenibile di beni di prima necessità di chi guadagna 10k), non
+> implementato ora ma non richiede migrazioni quando succederà.
+
+- [x] **Schema** (migration `0024`): `utenze_bollette.frequenza` (CHECK
+      mensile/bimestrale/trimestrale/semestrale/annuale/una_tantum) — necessaria
+      perché alcune righe (es. affitto) hanno `periodo_da/periodo_a` che copre
+      la durata del contratto, non il periodo fatturato dall'importo: senza la
+      frequenza esplicita, dividere per i mesi di `periodo_da/periodo_a`
+      darebbe un costo mensile assurdo. Backfill delle 30 righe utenze
+      esistenti per categoria (luce bimestrale — confermato dalle bollette A2A
+      stesse; internet mensile; affitto trimestrale; condominio annuale).
+      `config_budget_parametri` (soglie sostenibilità + target fondo
+      emergenza), stesso pattern chiave/valore di `config_fiscale_parametri`
+      ma con `intestatario_id` **nullable** fin da subito (null = default
+      globale, valorizzato = override personalizzato per persona) — questo è
+      il pezzo che rende la struttura "personalizzabile in futuro senza
+      migrazioni", anche se oggi esiste solo il default globale. Seed:
+      soglia sostenibile 40%, soglia attenzione 55%, fondo emergenza 3-6 mesi
+      di costi fissi.
+- [x] **Motore di sostenibilità** — modulo puro
+      `supabase/functions/_shared/budget-sostenibilita.ts`
+      (`calcolaSostenibilita`) + edge function `calcola-budget-sostenibilita`
+      (JWT-protected, per utente, reporting puro — non scrive nulla, nessuna
+      sicurezza anni già dichiarati). Reddito ricorrente mensile = **mediana**
+      dei netti (non la media): robusta ai mesi con bonus/STI/premio e alla
+      tredicesima senza doverli classificare esplicitamente come "variabili"
+      — la media (che li include) resta calcolata a parte come "reddito medio
+      annualizzato" per il quadro completo. Costo mensile equivalente per
+      categoria = `importo / mesi_per_frequenza`, mediato sulle righe
+      disponibili; righe con `frequenza` null o `una_tantum` escluse dal
+      calcolo. Include un trend (prima metà vs seconda metà del periodo
+      osservato) per capire se il rapporto costi/reddito sta migliorando o
+      peggiorando nel tempo, non solo uno snapshot.
+      **Quota di cointestazione applicata**: quando si passa un
+      `intestatario_id`, i costi utenze (che sono per l'intero domicilio)
+      vengono scalati per la `quota_percentuale` di quella persona in
+      `domicilio_intestatari` prima del confronto col suo reddito personale —
+      bug trovato e corretto nella prima versione (v1 confrontava il 100% dei
+      costi condivisi col reddito di una sola persona, gonfiando il rapporto
+      da ~21% a ~45%).
+      **Condominio escluso dal calcolo ricorrente** (frequenza portata a
+      `una_tantum` per le 2 righe esistenti): per questo domicilio la quota
+      condominiale è già pagata dentro la rata trimestrale di affitto (840€/
+      trim inclusi nei 5.340€/trim), quindi la riga condominio (il conguaglio
+      riconciliato) sommata alla riga affitto avrebbe contato lo stesso costo
+      due volte con due numeri diversi — il conguaglio va integrato solo
+      ex-post quando confermato (non è ricorrente/prevedibile), non nel
+      calcolo dei costi fissi ricorrenti.
+      **Calcolato per Mattia Madaschi (quota 50%)**: costi fissi 938,80€/mese
+      (affitto+condominio 890€ + luce 36,35€ + internet 12,45€), reddito
+      ricorrente mensile 4.395,63€ (mediana su 38 buste paga) → **rapporto
+      21,4%, giudizio sostenibile**, margine 3.456,83€/mese, fondo emergenza
+      target 2.816,40€–5.632,80€.
+- [ ] **Vista frontend** — non ancora costruita (stesso pattern di
+      Portafoglio/Fiscale: pagina che invoca `calcola-budget-sostenibilita` e
+      mostra il risultato in forma leggibile).
+- [ ] **Personalizzazione soglie per persona/fascia di reddito** — struttura
+      pronta (`config_budget_parametri.intestatario_id`), metodologia di
+      calibrazione non ancora definita (decisione esplicitamente rimandata
+      dall'utente).
 
 ## Fase 5 — ESPERTO DI FINANZA
 
