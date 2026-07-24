@@ -659,9 +659,18 @@ Stessa pipeline Drive/Claude di UTENZE: documento grezzo → dato normalizzato.
       `intestatario_id` se passato) e le aggiunge a `bolletteInput` **senza
       scalarle per quota** (a differenza delle utenze del domicilio
       cointestato, sono già per intero il costo della singola persona) —
-      riusa il motore puro invariato. Tabella creata, **ancora vuota**: i
-      dati reali (Netflix, Spotify, Anthropic, RC auto, ecc.) da inserire
-      nella prossima sessione.
+      riusa il motore puro invariato.
+      **Popolata** (migration `0027`) con i dati reali di Mattia Madaschi dal
+      01/01/2024 (storico non ritracciato oltre, in linea con INVESTIMENTI):
+      Spotify Family 20,99€/mese, Anthropic (Claude) 21,96€/mese, HoMobile
+      5,99€/mese (categorizzato `altro`: piano cellulare personale, non legato
+      al domicilio). RC auto/Bollo auto e Canone conto **non** inserite —
+      l'utente non paga l'auto e ha solo conti correnti gratuiti; le categorie
+      `veicolo`/`bancario` restano valide nell'enum per un uso futuro.
+      **Ricalcolo aggiornato** per Mattia Madaschi (quota 50%): costi fissi
+      **987,74€/mese** (938,80€ utenze/casa + 48,94€ subscription), reddito
+      ricorrente mensile 4.395,63€ → **rapporto 22,47%, giudizio sostenibile**,
+      margine 3.407,89€/mese, fondo emergenza target 2.963,22€–5.926,44€.
 - [ ] **Vista frontend** — non ancora costruita (stesso pattern di
       Portafoglio/Fiscale: pagina che invoca `calcola-budget-sostenibilita` e
       mostra il risultato in forma leggibile).
