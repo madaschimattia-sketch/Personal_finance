@@ -2,8 +2,8 @@ import { useEffect, useState, useCallback } from "react";
 import { supabase } from "../lib/supabase.js";
 import { fmtEur } from "../lib/format.js";
 import Card from "../components/Card.jsx";
+import { useFilters } from "../context/FiltersContext.jsx";
 
-const INTESTATARIO_ID = "37af7f90-79d8-42e6-b172-367ccbd38846";
 const ANNI_MAX = 40;
 const CATEGORIA_IBKR_TO_CONFIG = { STK: "stock", BOND: "bonds", FUND: "funds", CMDTY: "commodities", CRYPTO: "crypto" };
 
@@ -47,6 +47,7 @@ function ChartSerie({ serie }) {
 }
 
 export default function Proiezioni() {
+  const { intestatarioId } = useFilters();
   const [valoreIniziale, setValoreIniziale] = useState(0);
   const [rendimentoPct, setRendimentoPct] = useState(5);
   const [contributoMensile, setContributoMensile] = useState(0);
@@ -96,18 +97,19 @@ export default function Proiezioni() {
   }, []);
 
   useEffect(() => {
+    if (!intestatarioId) return;
     (async () => {
       const { valore, cagrDefault } = await caricaDefaultPortafoglio();
       let contributoDefault = 0;
       try {
-        const { data } = await supabase.functions.invoke("calcola-budget-sostenibilita", { body: { intestatario_id: INTESTATARIO_ID } });
+        const { data } = await supabase.functions.invoke("calcola-budget-sostenibilita", { body: { intestatario_id: intestatarioId } });
         if (data?.risultato) contributoDefault = Math.max(0, Math.round(data.risultato.margineMensile));
       } catch (_) { /* margine non disponibile: default 0 */ }
       setValoreIniziale(Math.round(valore));
       setRendimentoPct(Number(cagrDefault.toFixed(1)));
       setContributoMensile(contributoDefault);
     })();
-  }, [caricaDefaultPortafoglio]);
+  }, [caricaDefaultPortafoglio, intestatarioId]);
 
   async function ricalcolaRendimenti() {
     setRicalcolando(true);

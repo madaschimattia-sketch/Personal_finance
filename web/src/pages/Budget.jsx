@@ -2,8 +2,8 @@ import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase.js";
 import { fmtEur } from "../lib/format.js";
 import Card from "../components/Card.jsx";
+import { useFilters } from "../context/FiltersContext.jsx";
 
-const INTESTATARIO_ID = "37af7f90-79d8-42e6-b172-367ccbd38846";
 const CATEGORIA_LABEL = {
   luce: "Luce", gas: "Gas", acqua: "Acqua", internet_telefono: "Internet/telefono",
   affitto: "Affitto", condominio: "Condominio", streaming: "Streaming", software: "Software",
@@ -16,14 +16,16 @@ const DIREZIONE_LABEL = { migliora: "In miglioramento", peggiora: "In peggiorame
 function fmtPct1(v) { return `${v.toFixed(1)}%`; }
 
 export default function Budget() {
+  const { intestatarioId } = useFilters();
   const [stato, setStato] = useState("loading");
   const [risultato, setRisultato] = useState(null);
   const [nota, setNota] = useState(null);
 
   async function carica() {
+    if (!intestatarioId) return;
     setStato("loading");
     try {
-      const { data, error } = await supabase.functions.invoke("calcola-budget-sostenibilita", { body: { intestatario_id: INTESTATARIO_ID } });
+      const { data, error } = await supabase.functions.invoke("calcola-budget-sostenibilita", { body: { intestatario_id: intestatarioId } });
       if (error) throw error;
       if (!data.risultato) {
         setNota(data.nota ?? "Nessun dato disponibile.");
@@ -39,7 +41,7 @@ export default function Budget() {
     }
   }
 
-  useEffect(() => { carica(); }, []);
+  useEffect(() => { carica(); }, [intestatarioId]);
 
   return (
     <div>

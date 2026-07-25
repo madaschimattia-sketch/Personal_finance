@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase.js";
 import { fmtEur, fmtPct } from "../lib/format.js";
 import Card from "../components/Card.jsx";
+import { useFilters } from "../context/FiltersContext.jsx";
 
 // Aggregazione client-side di tax_lots aperti + valore attuale dall'ultimo snapshot
 // posizioni_aperte_ibkr, raggruppata per asset_class (classificazione normalizzata
@@ -45,6 +46,7 @@ function ChartSerie({ serie }) {
 }
 
 export default function Portafoglio() {
+  const { periodoGiorni } = useFilters();
   const [stato, setStato] = useState("loading");
   const [righe, setRighe] = useState([]);
   const [info, setInfo] = useState("");
@@ -98,8 +100,14 @@ export default function Portafoglio() {
           };
         }).sort((a, b) => a.symbol.localeCompare(b.symbol));
 
-        const { data: nav } = await supabase.from("conto_nav_giornaliero")
+        let navQuery = supabase.from("conto_nav_giornaliero")
           .select("report_date, stock_eur, bonds_eur").order("report_date", { ascending: true });
+        if (periodoGiorni) {
+          const cutoff = new Date();
+          cutoff.setDate(cutoff.getDate() - periodoGiorni);
+          navQuery = navQuery.gte("report_date", cutoff.toISOString().slice(0, 10));
+        }
+        const { data: nav } = await navQuery;
 
         if (!annullato) {
           setRighe(risultato);
@@ -113,7 +121,7 @@ export default function Portafoglio() {
       }
     })();
     return () => { annullato = true; };
-  }, []);
+  }, [periodoGiorni]);
 
   if (stato === "loading") return <p className="text-sm text-muted">Caricamento...</p>;
   if (stato === "error") return <p className="text-sm text-neg">Errore nel caricamento del portafoglio.</p>;
