@@ -30,6 +30,16 @@ function etichettaPeriodo(periodoDa, periodoA) {
   return `${daTxt} '${String(da.getFullYear()).slice(2)}`;
 }
 
+// Le bollette luce sono nominalmente bimestrali, ma alcuni periodi sono più corti
+// (es. dic '24: ~21 giorni per un readjust del contatore) — sommare/confrontare i
+// kWh grezzi tra periodi di durata diversa è fuorviante. Si normalizza a kWh/giorno,
+// mostrando comunque il dato grezzo (totale + giorni) nel tooltip per trasparenza.
+function giorniPeriodo(periodoDa, periodoA) {
+  if (!periodoA) return null;
+  const ms = new Date(periodoA) - new Date(periodoDa);
+  return Math.round(ms / 86400000) + 1;
+}
+
 function BarChart({ dati, formatValue, color = "#0B0C10" }) {
   const [hover, setHover] = useState(null);
   const w = 720, h = 200, padY = 10;
@@ -40,10 +50,11 @@ function BarChart({ dati, formatValue, color = "#0B0C10" }) {
     <div className="relative">
       {hover !== null && (
         <div
-          className="pointer-events-none absolute -translate-x-1/2 -translate-y-full rounded-chip bg-hero px-2.5 py-1 text-xs font-bold text-white"
+          className="pointer-events-none absolute -translate-x-1/2 -translate-y-full whitespace-nowrap rounded-chip bg-hero px-2.5 py-1 text-xs font-bold text-white"
           style={{ left: `${((hover + 0.5) / dati.length) * 100}%`, top: `${((h - (dati[hover].value / max) * (h - padY)) / (h + 24)) * 100}%` }}
         >
-          {dati[hover].label}: {formatValue(dati[hover].value)}
+          <div>{dati[hover].label}: {formatValue(dati[hover].value)}</div>
+          {dati[hover].sub && <div className="font-normal text-hero-muted">{dati[hover].sub}</div>}
         </div>
       )}
       <svg viewBox={`0 0 ${w} ${h + 24}`} preserveAspectRatio="none" className="h-52 w-full">
@@ -164,7 +175,15 @@ export default function Utenze() {
   const ultimaLuce = luce[luce.length - 1];
 
   const datiCosto = luce.map((b) => ({ label: etichettaPeriodo(b.periodo_da, b.periodo_a), value: Number(b.importo) }));
-  const datiConsumo = luce.map((b) => ({ label: etichettaPeriodo(b.periodo_da, b.periodo_a), value: Number(b.consumo ?? 0) }));
+  const datiConsumo = luce.map((b) => {
+    const giorni = giorniPeriodo(b.periodo_da, b.periodo_a);
+    const consumo = Number(b.consumo ?? 0);
+    return {
+      label: etichettaPeriodo(b.periodo_da, b.periodo_a),
+      value: giorni ? consumo / giorni : consumo,
+      sub: giorni ? `${consumo} kWh su ${giorni} giorni` : `${consumo} kWh (periodo non determinato)`,
+    };
+  });
   const datiCostoUnitario = luce
     .filter((b) => Number(b.consumo) > 0)
     .map((b) => ({ label: etichettaPeriodo(b.periodo_da, b.periodo_a), value: Number(b.importo) / Number(b.consumo) }));
@@ -195,8 +214,9 @@ export default function Utenze() {
           {datiCosto.length > 0 ? <BarChart dati={datiCosto} formatValue={(v) => fmtEur(v)} /> : <p className="text-sm text-muted">Nessun dato.</p>}
         </Card>
         <Card>
-          <h4 className="mb-3 font-display text-sm font-bold">Consumo per periodo (kWh)</h4>
-          {datiConsumo.length > 0 ? <LineChart dati={datiConsumo} formatValue={(v) => `${v} kWh`} /> : <p className="text-sm text-muted">Nessun dato.</p>}
+          <h4 className="mb-1 font-display text-sm font-bold">Consumo medio giornaliero (kWh/giorno)</h4>
+          <p className="mb-3 text-xs text-muted">Normalizzato per durata del periodo — i periodi non sono tutti bimestrali esatti.</p>
+          {datiConsumo.length > 0 ? <BarChart dati={datiConsumo} formatValue={(v) => `${v.toFixed(1)} kWh/giorno`} color="#B4FF39" /> : <p className="text-sm text-muted">Nessun dato.</p>}
         </Card>
       </div>
 
