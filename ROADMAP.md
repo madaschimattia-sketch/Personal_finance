@@ -388,7 +388,7 @@ Pipeline separata da IBKR: parsing PDF via Claude API, non Flex Web Service.
       + Martina Tombini, cointestatari del contratto di locazione, quota
       50/50 in `domicilio_intestatari`), **30 righe `utenze_bollette`** —
       12 bollette luce A2A Energia (feb-2024→giu-2026; buco maggio-novembre
-      2024 non caricato), 15 conti telefonici Vodafone per la linea internet
+      2024 poi colmato, vedi migration `0032`), 15 conti telefonici Vodafone per la linea internet
       fissa (set-2024→dic-2025, **nessun buco**), 1 riga di riferimento per il
       contratto di affitto (rata trimestrale 5.340€ = canone 4.500€ +
       anticipo condominiale 840€, **non** prova di pagamento del singolo
@@ -544,9 +544,17 @@ Stessa pipeline Drive/Claude di UTENZE: documento grezzo → dato normalizzato.
 
 ### UTENZE (domicilio Milano — Mac Mahon)
 
-- [ ] **Buco bollette luce maggio-novembre 2024** — non caricato, verificare se
-      esistono quelle bollette o se il gap è reale (es. altro fornitore/tariffa
-      in quel periodo).
+- [x] **Buco bollette luce maggio-dicembre 2024 colmato** (migration `0032`,
+      scoperto dall'utente confrontando il grafico con le fatture reali su
+      Drive): aggiunte mag-giu, lug-ago, set-ott 2024 (bimestrali regolari) +
+      la bolletta di **chiusura contratto** 01 nov–09 dic 2024 (rinnovo
+      tariffario A2A il 9/10 dicembre, da cui la riga "dic '24" già presente
+      partiva proprio dal 10 — ora spiegato, non più un'anomalia). Quest'ultima
+      include 124,08€ di oneri una tantum (contributo allacciamento + diritto
+      fisso vendita) non legati al consumo — verificare se preferisci scorporarli
+      dal calcolo ricorrente invece di lasciarli nella riga (oggi: nota
+      esplicativa, frequenza 'bimestrale', quindi ancora nel calcolo).
+      Storico ora continuo feb-2024→giu-2026, nessun buco residuo.
 - [ ] **Riga AFFITTO** — è un riferimento ai termini contrattuali (rata
       5.340€/trimestre), **non prova di pagamento** dei singoli trimestri:
       verificare dall'estratto conto che i bonifici trimestrali corrispondano.
