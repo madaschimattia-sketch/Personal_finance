@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase.js";
 import { fmtEur } from "../lib/format.js";
 import Card from "../components/Card.jsx";
+import { useFilters } from "../context/FiltersContext.jsx";
 
 // Vista sulle utenze GIA' IN ESSERE (bollette reali + spese fisse manuali) — non e'
 // la vista di sostenibilita' (quella e' "Budget", volutamente secondaria). Qui si
@@ -20,7 +21,10 @@ const CATEGORIA_LABEL = {
 };
 const MESI = ["gen", "feb", "mar", "apr", "mag", "giu", "lug", "ago", "set", "ott", "nov", "dic"];
 
-function etichettaPeriodo(periodoDa, periodoA) {
+// Descrizione estesa del periodo (es. "nov-dic '24") per caption testuali —
+// distinta dall'etichetta sull'asse dei grafici, che deve essere una data
+// precisa e non un'abbreviazione di mese (vedi etichettaAsseData sotto).
+function descrizionePeriodo(periodoDa, periodoA) {
   const da = new Date(periodoDa);
   const a = periodoA ? new Date(periodoA) : null;
   const daTxt = `${MESI[da.getMonth()]}`;
@@ -28,6 +32,18 @@ function etichettaPeriodo(periodoDa, periodoA) {
     return `${daTxt}-${MESI[a.getMonth()]} '${String(da.getFullYear()).slice(2)}`;
   }
   return `${daTxt} '${String(da.getFullYear()).slice(2)}`;
+}
+
+// Etichetta sull'asse X dei grafici: data di inizio periodo in formato gg/mm/aa,
+// non un'abbreviazione di mese — cosi' si legge la data esatta, non solo il mese.
+function etichettaAsseData(periodoDa) {
+  return new Date(periodoDa).toLocaleDateString("it-IT", { day: "2-digit", month: "2-digit", year: "2-digit" });
+}
+
+// Con molti periodi in serie le etichette sull'asse si accavallano: ne mostra
+// solo una ogni "step" (sempre l'ultima), senza nascondere le barre/punti.
+function passoEtichette(n) {
+  return Math.max(1, Math.ceil(n / 7));
 }
 
 // Le bollette luce sono nominalmente bimestrali, ma alcuni periodi sono più corti
@@ -46,6 +62,7 @@ function BarChart({ dati, formatValue, color = "#0B0C10" }) {
   const max = Math.max(...dati.map((d) => d.value), 1);
   const slot = w / dati.length;
   const barW = Math.max(6, slot - 10);
+  const step = passoEtichette(dati.length);
   return (
     <div className="relative">
       {hover !== null && (
@@ -62,6 +79,7 @@ function BarChart({ dati, formatValue, color = "#0B0C10" }) {
           const barH = (d.value / max) * (h - padY);
           const x = i * slot + (slot - barW) / 2;
           const y = h - barH;
+          const mostraEtichetta = i % step === 0 || i === dati.length - 1;
           return (
             <g key={i}>
               <rect
@@ -69,7 +87,9 @@ function BarChart({ dati, formatValue, color = "#0B0C10" }) {
                 opacity={hover === null || hover === i ? 1 : 0.35}
                 onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)}
               />
-              <text x={x + barW / 2} y={h + 16} textAnchor="middle" fontSize="10" fill="#6B7280">{d.label}</text>
+              {mostraEtichetta && (
+                <text x={x + barW / 2} y={h + 16} textAnchor="middle" fontSize="10" fill="#6B7280">{d.label}</text>
+              )}
             </g>
           );
         })}
@@ -78,14 +98,23 @@ function BarChart({ dati, formatValue, color = "#0B0C10" }) {
   );
 }
 
+// Un grafico a linee mostra una variazione, non una magnitudine da zero: forzare
+// il minimo dell'asse a 0 (come per le barre) su un costo unitario che oscilla
+// sempre tra ~0,3 e ~0,8 €/kWh schiaccia la linea in una fascia piatta in alto e
+// nasconde le variazioni reali. Il dominio qui usa il min/max effettivo dei dati
+// (con un margine), non uno zero forzato.
 function LineChart({ dati, formatValue, color = "#B4FF39", strokeInk = false }) {
   const [hover, setHover] = useState(null);
-  const w = 720, h = 200, padY = 14;
+  const w = 720, h = 200, padY = 20;
   const values = dati.map((d) => d.value);
-  const max = Math.max(...values, 1);
-  const min = Math.min(...values, 0);
+  const minRaw = Math.min(...values);
+  const maxRaw = Math.max(...values);
+  const margine = (maxRaw - minRaw) * 0.15 || Math.abs(maxRaw) * 0.1 || 1;
+  const max = maxRaw + margine;
+  const min = Math.max(0, minRaw - margine);
   const range = max - min || 1;
   const slot = w / (dati.length - 1 || 1);
+  const step = passoEtichette(dati.length);
   const pts = dati.map((d, i) => ({ x: i * slot, y: padY + (1 - (d.value - min) / range) * (h - 2 * padY) }));
   const line = pts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
   return (
@@ -108,7 +137,9 @@ function LineChart({ dati, formatValue, color = "#B4FF39", strokeInk = false }) 
           />
         ))}
         {dati.map((d, i) => (
-          <text key={i} x={pts[i].x} y={h + 16} textAnchor="middle" fontSize="10" fill="#6B7280">{d.label}</text>
+          (i % step === 0 || i === dati.length - 1) && (
+            <text key={i} x={pts[i].x} y={h + 16} textAnchor="middle" fontSize="10" fill="#6B7280">{d.label}</text>
+          )
         ))}
       </svg>
     </div>
@@ -116,6 +147,7 @@ function LineChart({ dati, formatValue, color = "#B4FF39", strokeInk = false }) 
 }
 
 export default function Utenze() {
+  const { intestatarioId, periodoGiorni } = useFilters();
   const [stato, setStato] = useState("loading");
   const [bollette, setBollette] = useState([]);
   const [luce, setLuce] = useState([]);
@@ -126,18 +158,37 @@ export default function Utenze() {
     let annullato = false;
     (async () => {
       try {
+        let cutoff = null;
+        if (periodoGiorni) {
+          const d = new Date();
+          d.setDate(d.getDate() - periodoGiorni);
+          cutoff = d.toISOString().slice(0, 10);
+        }
+
+        let bolletteQuery = supabase.from("utenze_bollette")
+          .select("categoria, fornitore, importo, data_emissione, frequenza, domicilio_id")
+          .neq("categoria", "luce")
+          .order("data_emissione", { ascending: false });
+        if (cutoff) bolletteQuery = bolletteQuery.gte("data_emissione", cutoff);
+
+        let luceQuery = supabase.from("utenze_bollette")
+          .select("periodo_da, periodo_a, importo, consumo, unita_misura")
+          .eq("categoria", "luce")
+          .order("periodo_da", { ascending: true });
+        if (cutoff) luceQuery = luceQuery.gte("periodo_da", cutoff);
+
+        // Le bollette (luce/altre) sono a livello di domicilio (utenze_bollette.user_id),
+        // non per intestatario: solo le spese fisse manuali hanno un intestatario_id
+        // (es. le subscription seedate solo per Mattia) e rispondono al filtro utente.
+        let speseQuery = supabase.from("spese_fisse_manuali")
+          .select("nome, categoria, importo, frequenza, attivo, data_inizio")
+          .order("categoria");
+        if (intestatarioId) speseQuery = speseQuery.eq("intestatario_id", intestatarioId);
+
         const [bolletteQ, luceQ, speseQ, domiciliQ] = await Promise.all([
-          supabase.from("utenze_bollette")
-            .select("categoria, fornitore, importo, data_emissione, frequenza, domicilio_id")
-            .neq("categoria", "luce")
-            .order("data_emissione", { ascending: false }),
-          supabase.from("utenze_bollette")
-            .select("periodo_da, periodo_a, importo, consumo, unita_misura")
-            .eq("categoria", "luce")
-            .order("periodo_da", { ascending: true }),
-          supabase.from("spese_fisse_manuali")
-            .select("nome, categoria, importo, frequenza, attivo, data_inizio")
-            .order("categoria"),
+          bolletteQuery,
+          luceQuery,
+          speseQuery,
           supabase.from("domicili").select("id, nome"),
         ]);
         if (bolletteQ.error) throw bolletteQ.error;
@@ -157,7 +208,7 @@ export default function Utenze() {
       }
     })();
     return () => { annullato = true; };
-  }, []);
+  }, [intestatarioId, periodoGiorni]);
 
   if (stato === "loading") return <p className="text-sm text-muted">Caricamento...</p>;
   if (stato === "error") return <p className="text-sm text-neg">Errore nel caricamento delle utenze.</p>;
@@ -174,19 +225,28 @@ export default function Utenze() {
   const costoUnitarioMedio = consumoTotaleLuce > 0 ? speseTotaliLuce / consumoTotaleLuce : null;
   const ultimaLuce = luce[luce.length - 1];
 
-  const datiCosto = luce.map((b) => ({ label: etichettaPeriodo(b.periodo_da, b.periodo_a), value: Number(b.importo) }));
+  const datiCosto = luce.map((b) => ({ label: etichettaAsseData(b.periodo_da), value: Number(b.importo) }));
+  const datiCostoGiornaliero = luce.map((b) => {
+    const giorni = giorniPeriodo(b.periodo_da, b.periodo_a);
+    const importo = Number(b.importo);
+    return {
+      label: etichettaAsseData(b.periodo_da),
+      value: giorni ? importo / giorni : importo,
+      sub: giorni ? `${fmtEur(importo)} su ${giorni} giorni` : `${fmtEur(importo)} (periodo non determinato)`,
+    };
+  });
   const datiConsumo = luce.map((b) => {
     const giorni = giorniPeriodo(b.periodo_da, b.periodo_a);
     const consumo = Number(b.consumo ?? 0);
     return {
-      label: etichettaPeriodo(b.periodo_da, b.periodo_a),
+      label: etichettaAsseData(b.periodo_da),
       value: giorni ? consumo / giorni : consumo,
       sub: giorni ? `${consumo} kWh su ${giorni} giorni` : `${consumo} kWh (periodo non determinato)`,
     };
   });
   const datiCostoUnitario = luce
     .filter((b) => Number(b.consumo) > 0)
-    .map((b) => ({ label: etichettaPeriodo(b.periodo_da, b.periodo_a), value: Number(b.importo) / Number(b.consumo) }));
+    .map((b) => ({ label: etichettaAsseData(b.periodo_da), value: Number(b.importo) / Number(b.consumo) }));
 
   return (
     <div>
@@ -204,27 +264,31 @@ export default function Utenze() {
         <Card>
           <p className="mb-1 text-xs font-semibold text-muted">Ultima bolletta</p>
           <p className="font-display text-lg font-extrabold">{ultimaLuce ? fmtEur(Number(ultimaLuce.importo)) : "n/d"}</p>
-          <p className="text-xs text-muted">{ultimaLuce ? etichettaPeriodo(ultimaLuce.periodo_da, ultimaLuce.periodo_a) : ""}</p>
+          <p className="text-xs text-muted">{ultimaLuce ? descrizionePeriodo(ultimaLuce.periodo_da, ultimaLuce.periodo_a) : ""}</p>
         </Card>
       </div>
 
-      <div className="mb-5 grid grid-cols-1 gap-4 lg:grid-cols-2">
+      <div className="mb-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Card>
           <h4 className="mb-3 font-display text-sm font-bold">Costo per periodo (€)</h4>
           {datiCosto.length > 0 ? <BarChart dati={datiCosto} formatValue={(v) => fmtEur(v)} /> : <p className="text-sm text-muted">Nessun dato.</p>}
+        </Card>
+        <Card>
+          <h4 className="mb-1 font-display text-sm font-bold">Costo medio giornaliero (€/giorno)</h4>
+          <p className="mb-3 text-xs text-muted">Normalizzato per durata del periodo — comparabile anche tra bollette di lunghezza diversa.</p>
+          {datiCostoGiornaliero.length > 0 ? <BarChart dati={datiCostoGiornaliero} formatValue={(v) => `${fmtEur(v)}/giorno`} /> : <p className="text-sm text-muted">Nessun dato.</p>}
         </Card>
         <Card>
           <h4 className="mb-1 font-display text-sm font-bold">Consumo medio giornaliero (kWh/giorno)</h4>
           <p className="mb-3 text-xs text-muted">Normalizzato per durata del periodo — i periodi non sono tutti bimestrali esatti.</p>
           {datiConsumo.length > 0 ? <BarChart dati={datiConsumo} formatValue={(v) => `${v.toFixed(1)} kWh/giorno`} color="#B4FF39" /> : <p className="text-sm text-muted">Nessun dato.</p>}
         </Card>
+        <Card>
+          <h4 className="mb-1 font-display text-sm font-bold">Costo unitario nel tempo (€/kWh)</h4>
+          <p className="mb-3 text-xs text-muted">Isola se la spesa sale per più consumo o per tariffa più cara.</p>
+          {datiCostoUnitario.length > 0 ? <LineChart dati={datiCostoUnitario} formatValue={(v) => `${v.toFixed(3)} €/kWh`} strokeInk /> : <p className="text-sm text-muted">Nessun dato.</p>}
+        </Card>
       </div>
-
-      <Card className="mb-6">
-        <h4 className="mb-1 font-display text-sm font-bold">Costo unitario nel tempo (€/kWh)</h4>
-        <p className="mb-3 text-xs text-muted">Isola se la spesa sale per più consumo o per tariffa più cara.</p>
-        {datiCostoUnitario.length > 0 ? <LineChart dati={datiCostoUnitario} formatValue={(v) => `${v.toFixed(3)} €/kWh`} strokeInk /> : <p className="text-sm text-muted">Nessun dato.</p>}
-      </Card>
 
       <h3 className="mb-3 font-display text-base font-bold">Altre bollette</h3>
       <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2">

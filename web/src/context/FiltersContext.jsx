@@ -9,8 +9,11 @@ import { supabase } from "../lib/supabase.js";
 // Nota sui limiti reali del filtro intestatario: Portafoglio/patrimonio non sono
 // oggi divisi per persona (tax_lots/tax_instruments non hanno un intestatario_id
 // — sono dell'unico conto IBKR), quindi l'intestatario selezionato incide solo
-// sulle pagine che confrontano col reddito di una persona (Budget, Proiezioni,
-// il riepilogo Utenze in Dashboard) — non sul valore del portafoglio in se'.
+// sulle pagine/sezioni legate al reddito o alle spese di una persona (Budget,
+// Proiezioni, il riepilogo Utenze in Dashboard, la tabella "Subscription e spese
+// fisse manuali" in Utenze — via spese_fisse_manuali.intestatario_id) — non sul
+// valore del portafoglio, ne' sulle bollette di casa (utenze_bollette/domicili
+// sono a livello di domicilio, non di persona).
 const FiltersContext = createContext(null);
 
 export const PERIODO_PRESET = [
