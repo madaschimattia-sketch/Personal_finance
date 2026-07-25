@@ -538,9 +538,17 @@ Stessa pipeline Drive/Claude di UTENZE: documento grezzo → dato normalizzato.
 - [ ] **Whitelist paesi** (134 righe, Decreto 4/9/1996) — elenco non
       auto-aggiornante: verificare periodicamente se ci sono aggiornamenti
       (art. 1-bis).
-- [ ] **Vista Portafoglio/Fiscale (frontend)** — struttura e navigazione
-      confermate ok dall'utente, ma i **numeri mostrati** (holdings aggregati,
-      quadri RT/RM/RW/RP) non sono ancora stati controllati nel dettaglio.
+- [ ] **Vista Portafoglio/Fiscale/Dashboard (frontend React /web)** —
+      struttura e navigazione confermate ok dall'utente, ma i **numeri
+      mostrati** (holdings aggregati, allocazione per asset class, quadri
+      RT/RM/RW/RP, proiezioni) non sono ancora stati controllati nel
+      dettaglio — l'assistente non può testarli con un login reale (policy:
+      niente inserimento credenziali), quindi la verifica finale è manuale.
+- [ ] **`tax_instruments.asset_class`** (migration `0031`, 19 strumenti in
+      possesso classificati leggendo la descrizione) — due casi limite da
+      confermare: `CGBD` (Carlyle Secured Lending, una BDC) oggi in Equity;
+      `BTCWUSD`/`IB1T` (i due tracker Bitcoin) oggi in Alternative. Usata per
+      raggruppare Portafoglio e per l'allocazione in Dashboard.
 
 ### UTENZE (domicilio Milano — Mac Mahon)
 
@@ -561,6 +569,10 @@ Stessa pipeline Drive/Claude di UTENZE: documento grezzo → dato normalizzato.
 - [ ] **Quota cointestazione 50/50** (Mattia/Martina in
       `domicilio_intestatari`) — assunzione di default in assenza di
       indicazione contraria, confermare che sia la ripartizione corretta.
+- [ ] **`spese_fisse_manuali.intestatario_id`** — le 3 subscription seedate
+      (Spotify Family, Anthropic, HoMobile) sono tutte attribuite a Mattia:
+      confermare che nessuna vada invece attribuita a Martina o considerata
+      condivisa, ora che il filtro utente del frontend usa questo campo.
 - [ ] **Conguaglio condominiale** (2.928,71€ a favore del conduttore, da
       "Prospetto conguaglio" approvato dalla proprietaria) — verificare che sia
       stato effettivamente restituito/compensato, e aggiornare quando succede.
