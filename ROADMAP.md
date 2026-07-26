@@ -503,6 +503,25 @@ Stessa pipeline Drive/Claude di UTENZE: documento grezzo → dato normalizzato.
 > di spunta per la verifica finale dell'utente. Aggiornare (spuntare / togliere
 > / aggiungere righe) man mano che i punti vengono chiusi.
 
+### FONDI PENSIONE
+
+- [ ] **AXA Save for Life Pension (Lussemburgo) — deducibilità RP non confermata**
+      (migration `0036`): i 2 versamenti 2022 (1.600€ + 1.600€ lordi) sono stati
+      inseriti con `deducibile=false` di default, perché la deducibilità quadro
+      RP di una polizza assicurativo-previdenziale lussemburghese non è
+      automatica come per un fondo pensione italiano armonizzato — verificare
+      col commercialista se e quanto è deducibile.
+- [ ] **AXA Save for Life Pension — monitoraggio RW** — `is_estero=true` ma
+      non ancora verificato se questa polizza richiede una riga RW (IVAFE) a
+      parte rispetto agli altri asset esteri già monitorati.
+- [ ] **AXA — documento 2023 mancante** (as-of 01/01/2024): nessun versamento
+      né controvalore inseriti per quell'anno, l'utente non è sicuro di poterlo
+      recuperare. Se recuperato, aggiungere versamento/posizione mancanti.
+- [ ] **AXA versamenti — importo lordo vs netto** — registrato l'importo
+      lordo pagato (1.600€ per versamento) come `importo_eur`, non il netto
+      investito (1.536€, al netto del caricamento AXA ~4%) — confermare che
+      sia la convenzione desiderata per "quanto ho versato".
+
 ### INVESTIMENTI
 
 - [ ] **Riconciliazione RT 2025 post-fix bug transactionID** — il riporto
