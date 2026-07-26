@@ -521,6 +521,19 @@ Stessa pipeline Drive/Claude di UTENZE: documento grezzo → dato normalizzato.
       lordo pagato (1.600€ per versamento) come `importo_eur`, non il netto
       investito (1.536€, al netto del caricamento AXA ~4%) — confermare che
       sia la convenzione desiderata per "quanto ho versato".
+- [ ] **Fondo Pensione Generali (F.P.G.G.) — contributo lavoratore 2024 non
+      dedotto** (migration `0037`): il Prospetto 2024 dichiara esplicitamente
+      326,88€ su 349,64€ di contributo lavoratore come "versati e non
+      dedotti" (dato comunicato dall'aderente al fondo). Inserito con
+      `deducibile=false` sull'intero importo in via prudenziale — verificare
+      col commercialista se i 22,76€ residui sono effettivamente deducibili
+      e se la dichiarazione fiscale deve riflettere questo split.
+- [ ] **Fondo Pensione Generali — 2025 in attesa del Prospetto annuale** —
+      contributi 2025 (375,60€ lavoratore, 3.702,41€ datore, 5.131,10€ TFR)
+      presi dall'Estratto conto (non dal Prospetto, non ancora emesso):
+      manca il dato "non dedotto" per il 2025, oggi assunto `deducibile=true`
+      sul contributo lavoratore in assenza di indicazioni contrarie — quando
+      arriva il Prospetto 2025, confermare o correggere.
 
 ### INVESTIMENTI
 
