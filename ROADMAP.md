@@ -505,22 +505,36 @@ Stessa pipeline Drive/Claude di UTENZE: documento grezzo → dato normalizzato.
 
 ### FONDI PENSIONE
 
-- [ ] **AXA Save for Life Pension (Lussemburgo) — deducibilità RP non confermata**
-      (migration `0036`): i 2 versamenti 2022 (1.600€ + 1.600€ lordi) sono stati
-      inseriti con `deducibile=false` di default, perché la deducibilità quadro
-      RP di una polizza assicurativo-previdenziale lussemburghese non è
-      automatica come per un fondo pensione italiano armonizzato — verificare
-      col commercialista se e quanto è deducibile.
-- [ ] **AXA Save for Life Pension — monitoraggio RW** — `is_estero=true` ma
-      non ancora verificato se questa polizza richiede una riga RW (IVAFE) a
-      parte rispetto agli altri asset esteri già monitorati.
-- [ ] **AXA — documento 2023 mancante** (as-of 01/01/2024): nessun versamento
-      né controvalore inseriti per quell'anno, l'utente non è sicuro di poterlo
-      recuperare. Se recuperato, aggiungere versamento/posizione mancanti.
-- [ ] **AXA versamenti — importo lordo vs netto** — registrato l'importo
-      lordo pagato (1.600€ per versamento) come `importo_eur`, non il netto
-      investito (1.536€, al netto del caricamento AXA ~4%) — confermare che
-      sia la convenzione desiderata per "quanto ho versato".
+- [x] **AXA Save for Life Pension (Lussemburgo) — deducibilità RP** (migration
+      `0038`): regola generale confermata dall'utente — deducibile per
+      default salvo indicazione esplicita contraria nel documento. I 2
+      versamenti 2022 sono ora `deducibile=true` (nessuna dichiarazione
+      contraria nei documenti AXA).
+- [x] **AXA Save for Life Pension — monitoraggio RW implementato** (migration
+      `0039`, `calcola-quadro-rw` v3): la funzione ora calcola l'IVAFE
+      proporzionale (2‰) anche sui fondi pensione `is_estero=true`, prorata
+      sui giorni di adesione nell'anno (nuova colonna `fondi_pensione.
+      data_adesione`, backfillata: AXA 01/12/2022, Generali 22/11/2023).
+      Eventi scritti in `tax_events` con `riferimento_id=fondo.id` (non
+      `conto_id`). **Attenzione**: 2023 e 2024 risultano già `presentata` in
+      `dichiarazioni_fiscali` — il ricalcolo è bloccato per sicurezza su
+      quegli anni (comportamento voluto, mai sovrascrive una dichiarazione
+      già presentata). Solo il **2022** è oggi ricalcolabile da "Ricalcola"
+      in Fiscale (anno aggiunto al selettore). Punti ancora da verificare:
+      (a) le aliquote IVAFE 2022-2024 sono state backfillate per analogia con
+      2025/2026 (migration `0040`, `verificato=false`, non confermate da
+      fonte ufficiale anno per anno); (b) non è confermato col commercialista
+      se una polizza assicurativo-previdenziale estera (diversa da un conto
+      titoli) sconta l'IVAFE con le stesse regole di un brokerage account.
+- [ ] **AXA — documenti 2023 e 2025 richiesti ad AXA** (as-of 01/01/2024 e
+      01/01/2026): non più "forse non recuperabile" — l'utente li ha
+      richiesti al fornitore. Quando arrivano, aggiungere versamento/
+      posizione mancanti per quegli anni (2025 sbloccherebbe anche il RW
+      2024, oggi non ricalcolabile perché presentata, per la parte 2025).
+- [ ] **AXA versamenti — importo lordo vs netto** — ancora in sospeso, vedi
+      sotto la risposta data all'utente: registrato il lordo (1.600€/versamento),
+      non il netto investito (1.536€, caricamento AXA ~4%) — l'utente ha
+      chiesto chiarimento, non ancora deciso quale tenere.
 - [x] **Fondo Pensione Generali (F.P.G.G.) — contributo lavoratore 2024 non
       dedotto** (migration `0037`): i 326,88€ su 349,64€ dichiarati "non
       dedotti" nel Prospetto 2024 erano già stati gestiti a suo tempo col

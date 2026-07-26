@@ -7,7 +7,11 @@ const QUADRI_LABEL = {
   RT: "RT — Redditi diversi (plus/minusvalenze)", RM: "RM — Redditi di capitale",
   RW: "RW — IVAFE", RP: "RP — Fondo pensione",
 };
-const ANNI = [2026, 2025, 2024, 2023];
+// 2022 incluso per il monitoraggio RW del fondo pensione AXA (adesione
+// dicembre 2022) — 2023/2024 restano "presentata" (bloccate in scrittura,
+// consultabili in sola lettura); 2022 non ha ancora una dichiarazione, quindi
+// è l'unico anno storico su cui il "Ricalcola" può ancora scrivere.
+const ANNI = [2026, 2025, 2024, 2023, 2022];
 const FUNZIONI = ["calcola-quadro-rt", "calcola-quadro-rm", "calcola-quadro-rw", "calcola-fondo-pensione"];
 
 export default function Fiscale() {

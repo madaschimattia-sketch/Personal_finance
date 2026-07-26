@@ -151,6 +151,101 @@ Deno.serve(async (req: Request) => {
       }
     }
 
+    // Fondi pensione esteri (is_estero=true): stesso IVAFE proporzionale 2‰ dei
+    // conti, ma sul controvalore di fine anno anziche' su conto_nav_giornaliero.
+    // Nessuna componente cash fissa (non e' un conto di liquidita'). Gli eventi
+    // usano riferimento_id=fondo.id con conto_id null, per distinguerli dai
+    // conti IBKR senza aggiungere una colonna dedicata a tax_events.
+    const { data: fondiEsteri, error: fondiErr } = await admin
+      .from("fondi_pensione")
+      .select("id, nome, data_adesione")
+      .eq("user_id", userId)
+      .eq("is_estero", true);
+    if (fondiErr) return json(500, { error: `Lettura fondi_pensione fallita: ${fondiErr.message}` });
+
+    for (const fondo of fondiEsteri ?? []) {
+      try {
+        const { data: posizioni, error: posErr } = await admin
+          .from("fondo_pensione_posizione")
+          .select("data_valorizzazione, controvalore_eur")
+          .eq("fondo_id", fondo.id)
+          .order("data_valorizzazione", { ascending: true });
+        if (posErr) throw new Error(`Lettura fondo_pensione_posizione fallita: ${posErr.message}`);
+
+        // Le "situazioni annuali" sono spesso datate 01/01 dell'anno successivo
+        // (es. AXA "al 01/01/2023" = fine 2022) invece che 31/12 dello stesso
+        // anno (es. Generali): normalizziamo le date nei primi giorni di
+        // gennaio all'anno precedente prima di cercare la posizione richiesta.
+        const posizione = (posizioni ?? []).find((p) => {
+          const d = new Date(`${p.data_valorizzazione}T00:00:00Z`);
+          const annoRiferimento = (d.getUTCMonth() === 0 && d.getUTCDate() <= 15) ? d.getUTCFullYear() - 1 : d.getUTCFullYear();
+          return annoRiferimento === anno;
+        });
+
+        const { error: delFondoErr } = await admin
+          .from("tax_events")
+          .delete()
+          .eq("user_id", userId)
+          .eq("riferimento_id", fondo.id)
+          .eq("anno", anno)
+          .eq("quadro", "RW");
+        if (delFondoErr) throw new Error(`Pulizia tax_events (fondo) fallita: ${delFondoErr.message}`);
+
+        if (!posizione) {
+          results.push({ fondo_id: fondo.id, nome: fondo.nome, status: "ok", eventi: [], nota: `Nessuna posizione disponibile per l'anno ${anno}` });
+          continue;
+        }
+
+        const dataAdesione = fondo.data_adesione ? new Date(`${fondo.data_adesione}T00:00:00Z`) : null;
+        let giorniPossesso = giorniAnno(anno);
+        if (dataAdesione) {
+          if (dataAdesione.getUTCFullYear() > anno) {
+            giorniPossesso = 0; // non ancora aderente in quell'anno
+          } else if (dataAdesione.getUTCFullYear() === anno) {
+            const inizioAnno = new Date(`${anno}-01-01T00:00:00Z`);
+            const inizio = dataAdesione > inizioAnno ? dataAdesione : inizioAnno;
+            const fineAnno = new Date(`${anno}-12-31T00:00:00Z`);
+            giorniPossesso = Math.round((fineAnno.getTime() - inizio.getTime()) / (24 * 60 * 60 * 1000)) + 1;
+          }
+        }
+
+        if (giorniPossesso <= 0) {
+          results.push({ fondo_id: fondo.id, nome: fondo.nome, status: "ok", eventi: [], nota: `Non ancora aderente nell'anno ${anno}` });
+          continue;
+        }
+
+        const eventiFondo = calcolaIvafe(
+          { reportDate: posizione.data_valorizzazione as string, titoliEur: Number(posizione.controvalore_eur) },
+          null,
+          { giorniPossesso, giorniAnno: giorniAnno(anno) },
+          aliquote,
+        );
+
+        if (eventiFondo.length > 0) {
+          const { error: insFondoErr } = await admin.from("tax_events").insert(
+            eventiFondo.map((e) => ({
+              user_id: userId,
+              conto_id: null,
+              riferimento_id: fondo.id,
+              anno,
+              quadro: e.quadro,
+              tipo: e.tipo,
+              imponibile_eur: e.imponibile_eur,
+              aliquota_pct: e.aliquota_pct,
+              imposta_eur: e.imposta_eur,
+              note: `${fondo.nome}: ${e.note}`,
+            })),
+          );
+          if (insFondoErr) throw new Error(`Insert tax_events (fondo) fallito: ${insFondoErr.message}`);
+        }
+
+        results.push({ fondo_id: fondo.id, nome: fondo.nome, status: "ok", eventi: eventiFondo });
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        results.push({ fondo_id: fondo.id, nome: fondo.nome, status: "error", errore: message });
+      }
+    }
+
     return json(200, { anno, results });
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
