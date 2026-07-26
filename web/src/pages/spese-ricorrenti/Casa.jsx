@@ -1,24 +1,21 @@
 import { useEffect, useState } from "react";
-import { supabase } from "../lib/supabase.js";
-import { fmtEur } from "../lib/format.js";
-import Card from "../components/Card.jsx";
-import { useFilters } from "../context/FiltersContext.jsx";
+import { supabase } from "../../lib/supabase.js";
+import { fmtEur } from "../../lib/format.js";
+import Card from "../../components/Card.jsx";
+import SpeseFisseTable from "../../components/SpeseFisseTable.jsx";
+import { useFilters } from "../../context/FiltersContext.jsx";
+import { CATEGORIA_LABEL } from "../../lib/categorie.js";
 
-// Vista sulle utenze GIA' IN ESSERE (bollette reali + spese fisse manuali) — non e'
-// la vista di sostenibilita' (quella e' "Budget", volutamente secondaria). Qui si
-// guarda cosa e' stato pagato/e' attivo, non una proiezione.
+// Ambito Casa: bollette utenze_bollette (luce/gas/acqua/internet/condominio/
+// affitto/mutuo/tari/imu, a livello di domicilio) + assicurazione_casa da
+// spese_fisse_manuali (personale, per intestatario). Non e' la vista di
+// sostenibilita' (quella e' "Budget", volutamente secondaria): qui si guarda
+// cosa e' stato pagato/e' attivo, non una proiezione.
 //
 // Sezione "Energia": unica categoria con vera variabilita' mese su mese (importo E
-// consumo kWh su ogni bolletta A2A) — internet e' fisso, affitto/condominio non sono
-// a cadenza mensile. Due grafici separati (costo, consumo) invece di un combo a doppio
-// asse — un dual-axis mischia due scale diverse ed e' l'errore #1 da evitare in un
-// grafico. Periodi bimestrali REALI (mai split mensile finto) per non inventare
-// precisione che i dati non hanno.
-const CATEGORIA_LABEL = {
-  gas: "Gas", acqua: "Acqua", internet_telefono: "Internet/telefono",
-  affitto: "Affitto", condominio: "Condominio", streaming: "Streaming", software: "Software",
-  fitness: "Fitness", veicolo: "Veicolo", assicurazione: "Assicurazione", bancario: "Bancario", altro: "Altro",
-};
+// consumo kWh su ogni bolletta A2A). Grafici separati per costo/consumo invece di un
+// combo a doppio asse — un dual-axis mischia due scale diverse ed e' l'errore #1 da
+// evitare in un grafico. Periodi bimestrali REALI (mai split mensile finto).
 const MESI = ["gen", "feb", "mar", "apr", "mag", "giu", "lug", "ago", "set", "ott", "nov", "dic"];
 
 // Descrizione estesa del periodo (es. "nov-dic '24") per caption testuali —
@@ -146,12 +143,65 @@ function LineChart({ dati, formatValue, color = "#B4FF39", strokeInk = false }) 
   );
 }
 
-export default function Utenze() {
+// Costo energia vs canone RAI, barre raggruppate (clustered) per periodo — non
+// stacked, cosi' si confrontano le due grandezze direttamente. La barra RAI e'
+// omessa (non a zero) per i periodi dove canone_rai_eur non e' noto: il
+// tooltip lo segnala esplicitamente invece di far sembrare un valore reale.
+function ChartCostoEnergiaRai({ dati }) {
+  const [hover, setHover] = useState(null);
+  const w = 720, h = 200, padY = 10;
+  const max = Math.max(...dati.map((d) => d.energia + (d.rai ?? 0)), 1);
+  const slot = w / dati.length;
+  const groupW = Math.max(10, slot - 8);
+  const barW = Math.max(4, (groupW - 4) / 2);
+  const step = passoEtichette(dati.length);
+  return (
+    <div>
+      <div className="mb-2 flex gap-4 text-xs font-semibold text-muted">
+        <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-hero" />Energia</span>
+        <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-accent" />Canone RAI</span>
+      </div>
+      <div className="relative">
+        {hover !== null && (
+          <div
+            className="pointer-events-none absolute -translate-x-1/2 -translate-y-full whitespace-nowrap rounded-chip bg-hero px-2.5 py-1 text-xs font-bold text-white"
+            style={{ left: `${((hover + 0.5) / dati.length) * 100}%`, top: `${((h - (Math.max(dati[hover].energia, dati[hover].rai ?? 0) / max) * (h - padY)) / (h + 24)) * 100}%` }}
+          >
+            <div>{dati[hover].label}</div>
+            <div>Energia: {fmtEur(dati[hover].energia)}</div>
+            <div>{dati[hover].raiNoto ? `Canone RAI: ${fmtEur(dati[hover].rai)}` : "Canone RAI non itemizzato in questo periodo"}</div>
+          </div>
+        )}
+        <svg viewBox={`0 0 ${w} ${h + 24}`} preserveAspectRatio="none" className="h-52 w-full">
+          {dati.map((d, i) => {
+            const xGroup = i * slot + (slot - groupW) / 2;
+            const hEnergia = (d.energia / max) * (h - padY);
+            const hRai = d.raiNoto ? (d.rai / max) * (h - padY) : 0;
+            const mostraEtichetta = i % step === 0 || i === dati.length - 1;
+            return (
+              <g key={i} onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)}>
+                <rect x={xGroup} y={h - hEnergia} width={barW} height={hEnergia} rx={3} fill="#0B0C10" opacity={hover === null || hover === i ? 1 : 0.35} />
+                {d.raiNoto && (
+                  <rect x={xGroup + barW + 4} y={h - hRai} width={barW} height={hRai} rx={3} fill="#B4FF39" opacity={hover === null || hover === i ? 1 : 0.35} />
+                )}
+                {mostraEtichetta && (
+                  <text x={xGroup + groupW / 2} y={h + 16} textAnchor="middle" fontSize="10" fill="#6B7280">{d.label}</text>
+                )}
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+    </div>
+  );
+}
+
+export default function Casa() {
   const { intestatarioId, periodoGiorni } = useFilters();
   const [stato, setStato] = useState("loading");
   const [bollette, setBollette] = useState([]);
   const [luce, setLuce] = useState([]);
-  const [speseFisse, setSpeseFisse] = useState([]);
+  const [assicurazioniCasa, setAssicurazioniCasa] = useState([]);
   const [domicili, setDomicili] = useState(new Map());
 
   useEffect(() => {
@@ -172,33 +222,33 @@ export default function Utenze() {
         if (cutoff) bolletteQuery = bolletteQuery.gte("data_emissione", cutoff);
 
         let luceQuery = supabase.from("utenze_bollette")
-          .select("periodo_da, periodo_a, importo, consumo, unita_misura")
+          .select("periodo_da, periodo_a, importo, consumo, unita_misura, canone_rai_eur")
           .eq("categoria", "luce")
           .order("periodo_da", { ascending: true });
         if (cutoff) luceQuery = luceQuery.gte("periodo_da", cutoff);
 
-        // Le bollette (luce/altre) sono a livello di domicilio (utenze_bollette.user_id),
-        // non per intestatario: solo le spese fisse manuali hanno un intestatario_id
-        // (es. le subscription seedate solo per Mattia) e rispondono al filtro utente.
-        let speseQuery = supabase.from("spese_fisse_manuali")
-          .select("nome, categoria, importo, frequenza, attivo, data_inizio")
-          .order("categoria");
-        if (intestatarioId) speseQuery = speseQuery.eq("intestatario_id", intestatarioId);
+        // Assicurazione casa e' l'unica categoria "Casa" che vive in
+        // spese_fisse_manuali (personale, per intestatario) invece che in
+        // utenze_bollette (a livello di domicilio).
+        let assicurazioneQuery = supabase.from("spese_fisse_manuali")
+          .select("nome, importo, frequenza, attivo, data_inizio")
+          .eq("categoria", "assicurazione_casa");
+        if (intestatarioId) assicurazioneQuery = assicurazioneQuery.eq("intestatario_id", intestatarioId);
 
-        const [bolletteQ, luceQ, speseQ, domiciliQ] = await Promise.all([
+        const [bolletteQ, luceQ, assicurazioneQ, domiciliQ] = await Promise.all([
           bolletteQuery,
           luceQuery,
-          speseQuery,
+          assicurazioneQuery,
           supabase.from("domicili").select("id, nome"),
         ]);
         if (bolletteQ.error) throw bolletteQ.error;
         if (luceQ.error) throw luceQ.error;
-        if (speseQ.error) throw speseQ.error;
+        if (assicurazioneQ.error) throw assicurazioneQ.error;
 
         if (!annullato) {
           setBollette(bolletteQ.data ?? []);
           setLuce(luceQ.data ?? []);
-          setSpeseFisse(speseQ.data ?? []);
+          setAssicurazioniCasa(assicurazioneQ.data ?? []);
           setDomicili(new Map((domiciliQ.data ?? []).map((d) => [d.id, d.nome])));
           setStato("ready");
         }
@@ -211,7 +261,7 @@ export default function Utenze() {
   }, [intestatarioId, periodoGiorni]);
 
   if (stato === "loading") return <p className="text-sm text-muted">Caricamento...</p>;
-  if (stato === "error") return <p className="text-sm text-neg">Errore nel caricamento delle utenze.</p>;
+  if (stato === "error") return <p className="text-sm text-neg">Errore nel caricamento di Casa.</p>;
 
   const perCategoria = new Map();
   for (const b of bollette) {
@@ -247,10 +297,21 @@ export default function Utenze() {
   const datiCostoUnitario = luce
     .filter((b) => Number(b.consumo) > 0)
     .map((b) => ({ label: etichettaAsseData(b.periodo_da), value: Number(b.importo) / Number(b.consumo) }));
+  const datiEnergiaRai = luce.map((b) => {
+    const importo = Number(b.importo);
+    const raiNoto = b.canone_rai_eur != null;
+    const rai = raiNoto ? Number(b.canone_rai_eur) : null;
+    return {
+      label: etichettaAsseData(b.periodo_da),
+      energia: raiNoto ? importo - rai : importo,
+      rai,
+      raiNoto,
+    };
+  });
 
   return (
     <div>
-      <h2 className="mb-1 font-display text-xl font-bold tracking-tight">Utenze</h2>
+      <h2 className="mb-1 font-display text-xl font-bold tracking-tight">Casa</h2>
       <p className="mb-6 text-sm text-muted">
         Bollette e costi fissi già in essere — l'analisi guarda a ciò che è stato pagato o è attivo oggi, non a una proiezione.
         Per il giudizio di sostenibilità rispetto al reddito vedi <span className="font-semibold">Budget</span>.
@@ -274,6 +335,11 @@ export default function Utenze() {
           {datiCosto.length > 0 ? <BarChart dati={datiCosto} formatValue={(v) => fmtEur(v)} /> : <p className="text-sm text-muted">Nessun dato.</p>}
         </Card>
         <Card>
+          <h4 className="mb-1 font-display text-sm font-bold">Energia vs canone RAI</h4>
+          <p className="mb-3 text-xs text-muted">Quota di canone RAI/TV inclusa nella bolletta, dove nota.</p>
+          {datiEnergiaRai.length > 0 ? <ChartCostoEnergiaRai dati={datiEnergiaRai} /> : <p className="text-sm text-muted">Nessun dato.</p>}
+        </Card>
+        <Card>
           <h4 className="mb-1 font-display text-sm font-bold">Costo medio giornaliero (€/giorno)</h4>
           <p className="mb-3 text-xs text-muted">Normalizzato per durata del periodo — comparabile anche tra bollette di lunghezza diversa.</p>
           {datiCostoGiornaliero.length > 0 ? <BarChart dati={datiCostoGiornaliero} formatValue={(v) => `${fmtEur(v)}/giorno`} /> : <p className="text-sm text-muted">Nessun dato.</p>}
@@ -290,58 +356,35 @@ export default function Utenze() {
         </Card>
       </div>
 
-      <h3 className="mb-3 font-display text-base font-bold">Altre bollette</h3>
-      <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2">
-        {[...perCategoria.entries()].map(([categoria, righe]) => (
-          <Card key={categoria}>
-            <div className="mb-3 flex items-center justify-between">
-              <h4 className="font-display text-sm font-bold">{CATEGORIA_LABEL[categoria] ?? categoria}</h4>
-              <span className="text-xs text-muted">{righe.length} bollette</span>
-            </div>
-            <ul className="space-y-2">
-              {righe.slice(0, 5).map((b, i) => (
-                <li key={i} className="flex items-center justify-between text-sm">
-                  <span className="text-muted">
-                    {b.fornitore ?? "—"} · {b.domicilio_id ? domicili.get(b.domicilio_id) : ""} · {b.data_emissione}
-                  </span>
-                  <span className="font-semibold">{fmtEur(Number(b.importo))}</span>
-                </li>
-              ))}
-            </ul>
-            {righe.length > 5 && <p className="mt-2 text-xs text-muted">+ altre {righe.length - 5}</p>}
-          </Card>
-        ))}
-      </div>
+      <h3 className="mb-3 font-display text-base font-bold">Altre bollette casa</h3>
+      {perCategoria.size > 0 ? (
+        <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2">
+          {[...perCategoria.entries()].map(([categoria, righe]) => (
+            <Card key={categoria}>
+              <div className="mb-3 flex items-center justify-between">
+                <h4 className="font-display text-sm font-bold">{CATEGORIA_LABEL[categoria] ?? categoria}</h4>
+                <span className="text-xs text-muted">{righe.length} bollette</span>
+              </div>
+              <ul className="space-y-2">
+                {righe.slice(0, 5).map((b, i) => (
+                  <li key={i} className="flex items-center justify-between text-sm">
+                    <span className="text-muted">
+                      {b.fornitore ?? "—"} · {b.domicilio_id ? domicili.get(b.domicilio_id) : ""} · {b.data_emissione}
+                    </span>
+                    <span className="font-semibold">{fmtEur(Number(b.importo))}</span>
+                  </li>
+                ))}
+              </ul>
+              {righe.length > 5 && <p className="mt-2 text-xs text-muted">+ altre {righe.length - 5}</p>}
+            </Card>
+          ))}
+        </div>
+      ) : (
+        <p className="mb-6 text-sm text-muted">Nessuna bolletta in questo periodo.</p>
+      )}
 
-      <h3 className="mb-3 font-display text-base font-bold">Subscription e spese fisse manuali</h3>
-      <Card className="overflow-x-auto p-0">
-        <table className="w-full min-w-[480px] text-sm">
-          <thead>
-            <tr className="border-b border-line text-left text-xs uppercase tracking-wide text-muted">
-              <th className="px-5 py-3 font-semibold">Nome</th>
-              <th className="px-5 py-3 font-semibold">Categoria</th>
-              <th className="px-5 py-3 font-semibold">Importo</th>
-              <th className="px-5 py-3 font-semibold">Frequenza</th>
-              <th className="px-5 py-3 font-semibold">Stato</th>
-            </tr>
-          </thead>
-          <tbody>
-            {speseFisse.map((s, i) => (
-              <tr key={i} className="border-b border-line last:border-0">
-                <td className="px-5 py-2.5 font-bold">{s.nome}</td>
-                <td className="px-5 py-2.5 text-muted">{CATEGORIA_LABEL[s.categoria] ?? s.categoria}</td>
-                <td className="px-5 py-2.5">{fmtEur(Number(s.importo))}</td>
-                <td className="px-5 py-2.5 text-muted">{s.frequenza}</td>
-                <td className="px-5 py-2.5">
-                  <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${s.attivo ? "bg-pos-bg text-pos" : "bg-line text-muted"}`}>
-                    {s.attivo ? "Attiva" : "Disattiva"}
-                  </span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </Card>
+      <h3 className="mb-3 font-display text-base font-bold">Assicurazione casa</h3>
+      <SpeseFisseTable righe={assicurazioniCasa} />
     </div>
   );
 }

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { supabase } from "../lib/supabase.js";
-import { fmtEur } from "../lib/format.js";
-import Card from "../components/Card.jsx";
+import { supabase } from "../../lib/supabase.js";
+import { fmtEur } from "../../lib/format.js";
+import Card from "../../components/Card.jsx";
 
 const QUADRI_LABEL = {
   RT: "RT — Redditi diversi (plus/minusvalenze)", RM: "RM — Redditi di capitale",

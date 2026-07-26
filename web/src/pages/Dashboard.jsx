@@ -4,13 +4,9 @@ import { supabase } from "../lib/supabase.js";
 import { fmtEur, fmtPct } from "../lib/format.js";
 import Card from "../components/Card.jsx";
 import { useFilters } from "../context/FiltersContext.jsx";
+import { CATEGORIA_LABEL } from "../lib/categorie.js";
 
 const RENDIMENTO_CATEGORIE = ["cash", "stock", "bonds", "funds", "commodities", "crypto"];
-const CATEGORIA_LABEL = {
-  luce: "Luce", internet_telefono: "Internet", affitto: "Affitto", condominio: "Condominio",
-  streaming: "Streaming", software: "Software", fitness: "Fitness", veicolo: "Veicolo",
-  assicurazione: "Assicurazione", bancario: "Bancario", altro: "Altro",
-};
 const GIUDIZIO_LABEL = { sostenibile: "Sostenibile", attenzione: "Attenzione", rischio: "A rischio" };
 
 // Stessa tassonomia normalizzata di Portafoglio.jsx (vedi migration 0031):
@@ -216,7 +212,7 @@ export default function Dashboard() {
       </section>
 
       <div className="mb-4 grid grid-cols-1 gap-4 md:grid-cols-2">
-        <Link to="/portafoglio" className="block">
+        <Link to="/investimenti/portafoglio" className="block">
           <Card className="transition-shadow hover:shadow-lg">
             <h3 className="mb-1 font-display text-base font-bold">Portafoglio</h3>
             <p className="mb-4 text-xs text-muted">{posizioni.length} posizioni aperte · IBKR</p>
@@ -237,9 +233,9 @@ export default function Dashboard() {
           </Card>
         </Link>
 
-        <Link to="/utenze" className="block">
+        <Link to="/spese-ricorrenti" className="block">
           <Card className="transition-shadow hover:shadow-lg">
-            <h3 className="mb-1 font-display text-base font-bold">Utenze</h3>
+            <h3 className="mb-1 font-display text-base font-bold">Spese ricorrenti</h3>
             <p className="mb-4 text-xs text-muted">Costi fissi reali · analisi principale</p>
             {budget ? (
               <>
@@ -290,7 +286,7 @@ export default function Dashboard() {
             <p className="mt-1 text-xs text-muted">tra 10 anni, a queste condizioni</p>
           </Card>
         </Link>
-        <Link to="/fiscale" className="block">
+        <Link to="/investimenti/fiscale" className="block">
           <Card className="transition-shadow hover:shadow-lg">
             <h4 className="mb-2 text-sm font-bold">Fiscale</h4>
             <div className="font-display text-xl font-extrabold">{impostaAnnoRecente != null ? fmtEur(impostaAnnoRecente) : "n/d"}</div>

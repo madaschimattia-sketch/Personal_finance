@@ -1,17 +1,22 @@
 import { useEffect, useState } from "react";
-import { Routes, Route, useNavigate } from "react-router-dom";
+import { Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import { supabase } from "./lib/supabase.js";
 import { FiltersProvider } from "./context/FiltersContext.jsx";
+import { SEZIONE_INVESTIMENTI, SEZIONE_SPESE_RICORRENTI } from "./lib/nav.js";
 import Sidebar from "./components/Sidebar.jsx";
 import FilterBar from "./components/FilterBar.jsx";
+import SectionLayout from "./components/SectionLayout.jsx";
 import { ChatIcon } from "./components/Icons.jsx";
 import Login from "./pages/Login.jsx";
 import Dashboard from "./pages/Dashboard.jsx";
-import Portafoglio from "./pages/Portafoglio.jsx";
-import Utenze from "./pages/Utenze.jsx";
+import Portafoglio from "./pages/investimenti/Portafoglio.jsx";
+import FondiPensione from "./pages/investimenti/FondiPensione.jsx";
+import Fiscale from "./pages/investimenti/Fiscale.jsx";
+import Casa from "./pages/spese-ricorrenti/Casa.jsx";
+import Veicolo from "./pages/spese-ricorrenti/Veicolo.jsx";
+import Persona from "./pages/spese-ricorrenti/Persona.jsx";
 import Budget from "./pages/Budget.jsx";
 import Proiezioni from "./pages/Proiezioni.jsx";
-import Fiscale from "./pages/Fiscale.jsx";
 import Chat from "./pages/Chat.jsx";
 
 export default function App() {
@@ -40,11 +45,23 @@ export default function App() {
           <FilterBar />
           <Routes>
             <Route path="/" element={<Dashboard />} />
-            <Route path="/portafoglio" element={<Portafoglio />} />
-            <Route path="/utenze" element={<Utenze />} />
+
+            <Route path="/investimenti" element={<SectionLayout voci={SEZIONE_INVESTIMENTI.voci} />}>
+              <Route index element={<Navigate to="portafoglio" replace />} />
+              <Route path="portafoglio" element={<Portafoglio />} />
+              <Route path="fondi-pensione" element={<FondiPensione />} />
+              <Route path="fiscale" element={<Fiscale />} />
+            </Route>
+
+            <Route path="/spese-ricorrenti" element={<SectionLayout voci={SEZIONE_SPESE_RICORRENTI.voci} />}>
+              <Route index element={<Navigate to="casa" replace />} />
+              <Route path="casa" element={<Casa />} />
+              <Route path="veicolo" element={<Veicolo />} />
+              <Route path="persona" element={<Persona />} />
+            </Route>
+
             <Route path="/budget" element={<Budget />} />
             <Route path="/proiezioni" element={<Proiezioni />} />
-            <Route path="/fiscale" element={<Fiscale />} />
             <Route path="/chat" element={<Chat />} />
           </Routes>
           <a

@@ -51,3 +51,36 @@ export function ChatIcon(props) {
     </svg>
   );
 }
+export function CasaIcon(props) {
+  return (
+    <svg viewBox="0 0 24 24" {...base} {...props}>
+      <path d="M3 11l9-7 9 7M5 10v10h14V10" />
+      <path d="M9 20v-6h6v6" />
+    </svg>
+  );
+}
+export function VeicoloIcon(props) {
+  return (
+    <svg viewBox="0 0 24 24" {...base} {...props}>
+      <path d="M3 16V9l2-4h14l2 4v7" />
+      <path d="M3 16h18M6 16v2M18 16v2" />
+      <circle cx="7" cy="16" r="1.5" />
+      <circle cx="17" cy="16" r="1.5" />
+    </svg>
+  );
+}
+export function PersonaIcon(props) {
+  return (
+    <svg viewBox="0 0 24 24" {...base} {...props}>
+      <circle cx="12" cy="8" r="4" />
+      <path d="M4 20c0-4 3.5-6 8-6s8 2 8 6" />
+    </svg>
+  );
+}
+export function FondoPensioneIcon(props) {
+  return (
+    <svg viewBox="0 0 24 24" {...base} {...props}>
+      <path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z" />
+    </svg>
+  );
+}

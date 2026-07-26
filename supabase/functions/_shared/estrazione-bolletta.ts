@@ -18,6 +18,7 @@ export interface CampiBolletta {
   iva: number | null;
   consumo: number | null;
   unita_misura: string | null; // 'kWh' | 'Smc' | 'mc' | null
+  canone_rai_eur: number | null; // solo bollette 'luce', null se non itemizzato separatamente
   note: string | null;
 }
 
@@ -41,6 +42,7 @@ const TOOL_SCHEMA = {
       iva: { type: ["number", "null"], description: "Importo IVA in EUR, null se non riportato separatamente" },
       consumo: { type: ["number", "null"], description: "Consumo fatturato nel periodo (kWh per luce, Smc per gas, mc per acqua), null se non applicabile (es. internet/condominio/affitto)" },
       unita_misura: { type: ["string", "null"], description: "Unita' di misura del consumo: 'kWh' | 'Smc' | 'mc', null se consumo e' null" },
+      canone_rai_eur: { type: ["number", "null"], description: "Importo del canone RAI/abbonamento TV se addebitato separatamente su questa bolletta (solo categoria luce), null se non presente o non applicabile" },
       note: { type: ["string", "null"], description: "Eventuali osservazioni utili non catturate dagli altri campi (es. conguaglio, rateizzazione, anomalie evidenti)" },
     },
     required: ["data_emissione", "importo"],
@@ -98,6 +100,7 @@ export function parseAnthropicResponse(body: unknown): CampiBolletta {
     iva: (input.iva as number | null) ?? null,
     consumo: (input.consumo as number | null) ?? null,
     unita_misura: (input.unita_misura as string | null) ?? null,
+    canone_rai_eur: (input.canone_rai_eur as number | null) ?? null,
     note: (input.note as string | null) ?? null,
   };
 }

@@ -12,7 +12,7 @@ import { corsHeaders } from "../_shared/cors.ts";
 import { createAdminClient } from "../_shared/supabase-admin.ts";
 import { buildAnthropicRequest, parseAnthropicResponse } from "../_shared/estrazione-bolletta.ts";
 
-const CATEGORIE_VALIDE = ["luce", "gas", "acqua", "internet_telefono", "condominio", "affitto"];
+const CATEGORIE_VALIDE = ["luce", "gas", "acqua", "internet_telefono", "condominio", "affitto", "mutuo", "tari", "imu"];
 const MODEL = "claude-haiku-4-5";
 
 function json(status: number, body: unknown) {
@@ -140,6 +140,7 @@ Deno.serve(async (req: Request) => {
         iva: campi.iva,
         consumo: campi.consumo,
         unita_misura: campi.unita_misura,
+        canone_rai_eur: campi.canone_rai_eur,
         note: campi.note,
         raw_estrazione: anthropicBody,
       })

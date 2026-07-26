@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
-import { supabase } from "../lib/supabase.js";
-import { fmtEur, fmtPct } from "../lib/format.js";
-import Card from "../components/Card.jsx";
-import { useFilters } from "../context/FiltersContext.jsx";
+import { supabase } from "../../lib/supabase.js";
+import { fmtEur, fmtPct } from "../../lib/format.js";
+import Card from "../../components/Card.jsx";
+import { useFilters } from "../../context/FiltersContext.jsx";
 
 // Aggregazione client-side di tax_lots aperti + valore attuale dall'ultimo snapshot
 // posizioni_aperte_ibkr, raggruppata per asset_class (classificazione normalizzata
