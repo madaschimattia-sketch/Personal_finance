@@ -13,6 +13,7 @@
 import { corsHeaders } from "../_shared/cors.ts";
 import { createAdminClient } from "../_shared/supabase-admin.ts";
 import { calcolaQuadroRT, type CarryforwardInput, type ClosureInput } from "../_shared/quadro-rt.ts";
+import { quotaContoProprietario } from "../_shared/quota-conto.ts";
 
 function json(status: number, body: unknown) {
   return new Response(JSON.stringify(body), {
@@ -62,6 +63,10 @@ Deno.serve(async (req: Request) => {
       return json(500, { error: `Aliquote mancanti in config_fiscale_parametri per l'anno ${anno}` });
     }
 
+    // Conto IBKR cointestato al 50% con Marco Lazzarini: le chiusure lotti sono
+    // sull'intero conto, ma la dichiarazione di Mattia va fatta solo sulla sua quota.
+    const quota = await quotaContoProprietario(admin, userId);
+
     const { data: closureRows, error: closErr } = await admin
       .from("tax_lot_closures")
       .select("id, categoria_compensazione, plus_minus_eur, data_chiusura")
@@ -73,7 +78,7 @@ Deno.serve(async (req: Request) => {
     const chiusure: ClosureInput[] = (closureRows ?? []).map((c) => ({
       id: c.id,
       categoria_compensazione: c.categoria_compensazione,
-      plus_minus_eur: Number(c.plus_minus_eur),
+      plus_minus_eur: Number(c.plus_minus_eur) * quota,
     }));
 
     const { data: cfRows, error: cfErr } = await admin
@@ -128,6 +133,16 @@ Deno.serve(async (req: Request) => {
         .eq("id", c.id);
       if (error) return json(500, { error: `Update tax_loss_carryforward fallito: ${error.message}` });
     }
+
+    // Pulizia prima dell'insert: senza questo delete, ricalcolare piu' volte lo
+    // stesso anno (es. premendo "Ricalcola" in Fiscale.jsx) accumula righe
+    // duplicate di riporto, perche' l'insert sotto non e' idempotente di suo.
+    const { error: delCfErr } = await admin
+      .from("tax_loss_carryforward")
+      .delete()
+      .eq("user_id", userId)
+      .eq("anno_origine", anno);
+    if (delCfErr) return json(500, { error: `Pulizia tax_loss_carryforward fallita: ${delCfErr.message}` });
 
     if (risultato.carryforwardNuovi.length > 0) {
       const { error } = await admin.from("tax_loss_carryforward").insert(

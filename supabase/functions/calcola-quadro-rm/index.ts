@@ -10,6 +10,7 @@
 import { corsHeaders } from "../_shared/cors.ts";
 import { createAdminClient } from "../_shared/supabase-admin.ts";
 import { calcolaQuadroRM, type RedditoCapitaleInput, type RitenutaInput } from "../_shared/quadro-rm.ts";
+import { quotaContoProprietario } from "../_shared/quota-conto.ts";
 
 function json(status: number, body: unknown) {
   return new Response(JSON.stringify(body), {
@@ -67,6 +68,10 @@ Deno.serve(async (req: Request) => {
       return json(500, { error: `Aliquote mancanti in config_fiscale_parametri per l'anno ${anno}` });
     }
 
+    // Conto IBKR cointestato al 50% con Marco Lazzarini: dividendi/interessi/
+    // cedole/ritenute sull'intero conto vanno dichiarati solo per la quota di Mattia.
+    const quota = await quotaContoProprietario(admin, userId);
+
     const { data: contiRows, error: contiErr } = await admin.from("conti").select("id").eq("user_id", userId);
     if (contiErr) return json(500, { error: `Lettura conti fallita: ${contiErr.message}` });
     const contoIds = (contiRows ?? []).map((c) => c.id as string);
@@ -98,9 +103,9 @@ Deno.serve(async (req: Request) => {
       const info = m.instrument_id ? infoById.get(m.instrument_id as string) ?? null : null;
       const categoria = categoriaDaStrumento(info);
       if (m.tipo === "ritenuta") {
-        ritenute.push({ id: m.id, categoria, importo_eur: Math.abs(Number(m.importo_eur)) });
+        ritenute.push({ id: m.id, categoria, importo_eur: Math.abs(Number(m.importo_eur)) * quota });
       } else {
-        redditi.push({ id: m.id, categoria, importo_eur: Number(m.importo_eur) });
+        redditi.push({ id: m.id, categoria, importo_eur: Number(m.importo_eur) * quota });
       }
     }
 

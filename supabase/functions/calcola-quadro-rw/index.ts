@@ -10,6 +10,7 @@
 import { corsHeaders } from "../_shared/cors.ts";
 import { createAdminClient } from "../_shared/supabase-admin.ts";
 import { calcolaIvafe, giorniAnno, type GiacenzaMediaCashInput, type NavSnapshotInput } from "../_shared/quadro-rw.ts";
+import { quotaContoProprietario } from "../_shared/quota-conto.ts";
 
 function json(status: number, body: unknown) {
   return new Response(JSON.stringify(body), {
@@ -61,6 +62,10 @@ Deno.serve(async (req: Request) => {
     }
     const aliquote = { ivafeProporzionalePct, ivafeCashFissaEur, ivafeCashSogliaGiacenzaMediaEur };
 
+    // Conto IBKR cointestato al 50% con Marco Lazzarini: l'IVAFE va calcolata solo
+    // sulla quota di proprieta' di Mattia, non sull'intero controvalore/giacenza.
+    const quota = await quotaContoProprietario(admin, userId);
+
     const { data: conti, error: contiErr } = await admin.from("conti").select("id").eq("user_id", userId);
     if (contiErr) return json(500, { error: `Lettura conti fallita: ${contiErr.message}` });
     if (!conti || conti.length === 0) return json(200, { anno, results: [] });
@@ -76,7 +81,7 @@ Deno.serve(async (req: Request) => {
           .maybeSingle();
         if (giacenzaErr) throw new Error(`Lettura v_giacenza_media_cash_annua fallita: ${giacenzaErr.message}`);
         const giacenza: GiacenzaMediaCashInput | null = giacenzaRow
-          ? { giacenzaMediaCashEur: Number(giacenzaRow.giacenza_media_cash_eur) }
+          ? { giacenzaMediaCashEur: Number(giacenzaRow.giacenza_media_cash_eur) * quota }
           : null;
 
         const { data: ultimoNavRow, error: ultimoErr } = await admin
@@ -104,8 +109,8 @@ Deno.serve(async (req: Request) => {
         const totaleGiorniAnno = giorniAnno(anno);
 
         if (ultimoNavRow) {
-          const titoliEur = Number(ultimoNavRow.stock_eur) + Number(ultimoNavRow.bonds_eur) + Number(ultimoNavRow.options_eur)
-            + Number(ultimoNavRow.funds_eur) + Number(ultimoNavRow.commodities_eur) + Number(ultimoNavRow.crypto_eur);
+          const titoliEur = (Number(ultimoNavRow.stock_eur) + Number(ultimoNavRow.bonds_eur) + Number(ultimoNavRow.options_eur)
+            + Number(ultimoNavRow.funds_eur) + Number(ultimoNavRow.commodities_eur) + Number(ultimoNavRow.crypto_eur)) * quota;
           nav = { reportDate: ultimoNavRow.report_date as string, titoliEur };
 
           const inizioAnno = new Date(`${anno}-01-01T00:00:00Z`);
