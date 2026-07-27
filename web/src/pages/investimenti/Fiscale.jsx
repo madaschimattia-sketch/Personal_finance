@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "../../lib/supabase.js";
 import { fmtEur } from "../../lib/format.js";
 import Card from "../../components/Card.jsx";
+import { useFilters } from "../../context/FiltersContext.jsx";
 
 const QUADRI_LABEL = {
   RT: "RT — Redditi diversi (plus/minusvalenze)", RM: "RM — Redditi di capitale",
@@ -15,10 +16,19 @@ const ANNI = [2026, 2025, 2024, 2023, 2022];
 const FUNZIONI = ["calcola-quadro-rt", "calcola-quadro-rm", "calcola-quadro-rw", "calcola-fondo-pensione"];
 
 export default function Fiscale() {
+  const { intestatari, intestatarioId } = useFilters();
   const [anno, setAnno] = useState(2025);
   const [eventi, setEventi] = useState(null);
   const [statoRicalcolo, setStatoRicalcolo] = useState("");
   const [ricalcolando, setRicalcolando] = useState(false);
+
+  // I quadri fiscali (tax_events) sono la dichiarazione di UNA persona (chi ha
+  // relazione='io', qui Mattia): non esiste una "fiscalità di Martina" in
+  // quest'app — lei non ha alcun conto/reddito soggetto a dichiarazione,
+  // quindi la pagina resta vuota quando è lei l'intestatario selezionato,
+  // invece di mostrare per errore i quadri di Mattia.
+  const relazioneSelezionata = intestatari.find((i) => i.id === intestatarioId)?.relazione;
+  const eProprietario = relazioneSelezionata === "io";
 
   async function carica(a) {
     const { data, error } = await supabase.from("tax_events").select("*").eq("anno", a).order("quadro").order("tipo");
@@ -26,7 +36,10 @@ export default function Fiscale() {
     setEventi(data ?? []);
   }
 
-  useEffect(() => { carica(anno); }, [anno]);
+  useEffect(() => {
+    if (!eProprietario) { setEventi([]); return; }
+    carica(anno);
+  }, [anno, eProprietario]);
 
   async function ricalcola() {
     setRicalcolando(true);
@@ -51,6 +64,19 @@ export default function Fiscale() {
     const arr = perQuadro.get(e.quadro) ?? [];
     arr.push(e);
     perQuadro.set(e.quadro, arr);
+  }
+
+  if (!eProprietario) {
+    return (
+      <div>
+        <h2 className="mb-5 font-display text-xl font-bold tracking-tight">Fiscale</h2>
+        <Card>
+          <p className="text-sm text-muted">
+            Questa persona non ha una propria dichiarazione fiscale in quest'app: nessun conto o reddito a lei intestato è soggetto a dichiarazione. La fiscalità tracciata qui è solo quella di Mattia.
+          </p>
+        </Card>
+      </div>
+    );
   }
 
   return (

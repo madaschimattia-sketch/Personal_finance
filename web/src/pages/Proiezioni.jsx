@@ -3,6 +3,7 @@ import { supabase } from "../lib/supabase.js";
 import { fmtEur } from "../lib/format.js";
 import Card from "../components/Card.jsx";
 import { useFilters } from "../context/FiltersContext.jsx";
+import { quotaContoIbkr } from "../lib/conto.js";
 
 const ANNI_MAX = 40;
 const CATEGORIA_IBKR_TO_CONFIG = { STK: "stock", BOND: "bonds", FUND: "funds", CMDTY: "commodities", CRYPTO: "crypto" };
@@ -56,7 +57,8 @@ export default function Proiezioni() {
   const [statoRendimenti, setStatoRendimenti] = useState("");
   const [ricalcolando, setRicalcolando] = useState(false);
 
-  const caricaDefaultPortafoglio = useCallback(async () => {
+  const caricaDefaultPortafoglio = useCallback(async (intestatarioId) => {
+    const quota = await quotaContoIbkr(intestatarioId);
     const [{ data: nav }, { data: rendimentiCategoria }] = await Promise.all([
       supabase.from("conto_nav_giornaliero").select("report_date, cash_eur, total_eur").order("report_date", { ascending: false }).limit(1).maybeSingle(),
       supabase.from("config_rendimenti_attesi").select("categoria, rendimento_atteso_pct"),
@@ -65,7 +67,7 @@ export default function Proiezioni() {
     let cagrDefault = 5;
     let valore = 0;
     if (nav && Number(nav.total_eur) > 0) {
-      valore = Number(nav.total_eur);
+      valore = Number(nav.total_eur) * quota;
       const rendimentoPerCategoria = new Map((rendimentiCategoria ?? []).map((r) => [r.categoria, Number(r.rendimento_atteso_pct)]));
 
       const { data: dataUltima } = await supabase.from("posizioni_aperte_ibkr").select("report_date").order("report_date", { ascending: false }).limit(1).maybeSingle();
@@ -80,10 +82,13 @@ export default function Proiezioni() {
         : { data: [] };
       const rendimentoPerConid = new Map((strumenti ?? []).map((s) => [s.conid, s.rendimento_5y_pct != null ? Number(s.rendimento_5y_pct) : null]));
 
-      let sommaPesata = Number(nav.cash_eur ?? 0) * (rendimentoPerCategoria.get("cash") ?? 0);
+      // Nota: la quota si applica ai valori assoluti (valore, sommaPesata), non al
+      // CAGR pesato in sé — è un rapporto tra grandezze scalate dello stesso fattore,
+      // quindi resta invariato. Scalata comunque per coerenza col resto del calcolo.
+      let sommaPesata = Number(nav.cash_eur ?? 0) * quota * (rendimentoPerCategoria.get("cash") ?? 0);
       let nReale = 0, nFallback = 0;
       for (const p of posizioni) {
-        const val = Number(p.position_value_eur ?? 0);
+        const val = Number(p.position_value_eur ?? 0) * quota;
         const reale = rendimentoPerConid.get(p.conid);
         if (reale != null) { sommaPesata += val * reale; nReale++; }
         else { sommaPesata += val * (rendimentoPerCategoria.get(CATEGORIA_IBKR_TO_CONFIG[p.asset_category]) ?? 0); nFallback++; }
@@ -99,7 +104,7 @@ export default function Proiezioni() {
   useEffect(() => {
     if (!intestatarioId) return;
     (async () => {
-      const { valore, cagrDefault } = await caricaDefaultPortafoglio();
+      const { valore, cagrDefault } = await caricaDefaultPortafoglio(intestatarioId);
       let contributoDefault = 0;
       try {
         const { data } = await supabase.functions.invoke("calcola-budget-sostenibilita", { body: { intestatario_id: intestatarioId } });
@@ -123,7 +128,7 @@ export default function Proiezioni() {
       const nSkip = valori.filter((d) => d.skipped).length;
       setStatoRendimenti(`Fatto: ${nOk} strumento/i aggiornati, ${nSkip} saltati (vedi console per il dettaglio).`);
       console.log("calcola-rendimenti-storici:", dettaglio);
-      const { cagrDefault } = await caricaDefaultPortafoglio();
+      const { cagrDefault } = await caricaDefaultPortafoglio(intestatarioId);
       setRendimentoPct(Number(cagrDefault.toFixed(1)));
     } catch (e) {
       setStatoRendimenti(`Errore: ${e.message}`);

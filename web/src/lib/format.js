@@ -1,5 +1,7 @@
+// Formato numerico richiesto: virgola migliaia / punto decimali (en-US), anche se
+// il resto dell'app (copy, label) resta in italiano.
 export function fmtEur(n) {
-  return (n ?? 0).toLocaleString("it-IT", {
+  return (n ?? 0).toLocaleString("en-US", {
     style: "currency",
     currency: "EUR",
     minimumFractionDigits: 2,
