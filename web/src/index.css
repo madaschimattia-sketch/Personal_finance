@@ -6,3 +6,38 @@ body {
   @apply bg-bg text-ink font-body;
   font-variant-numeric: tabular-nums;
 }
+
+/* Dual-thumb range slider (DateRangeSlider.jsx): due <input type="range">
+   sovrapposti, il track e' invisibile/non-cliccabile (pointer-events: none) e
+   solo il pallino (thumb) riceve i click, cosi' funzionano indipendentemente. */
+.range-thumb {
+  pointer-events: none;
+}
+.range-thumb::-webkit-slider-thumb {
+  pointer-events: auto;
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 9999px;
+  background: #0b0c10;
+  border: 2px solid #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  cursor: pointer;
+}
+.range-thumb::-moz-range-thumb {
+  pointer-events: auto;
+  width: 16px;
+  height: 16px;
+  border-radius: 9999px;
+  background: #0b0c10;
+  border: 2px solid #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  cursor: pointer;
+}
+.range-thumb::-webkit-slider-runnable-track {
+  background: transparent;
+}
+.range-thumb::-moz-range-track {
+  background: transparent;
+}

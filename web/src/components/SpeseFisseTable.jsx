@@ -19,7 +19,10 @@ export default function SpeseFisseTable({ righe, mostraCategoria = false }) {
         <tbody>
           {righe.map((s, i) => (
             <tr key={i} className="border-b border-line last:border-0">
-              <td className="px-5 py-2.5 font-bold">{s.nome}</td>
+              <td className="px-5 py-2.5 font-bold">
+                {s.nome}
+                {s.notaCointestazione && <div className="mt-0.5 text-xs font-normal text-muted">{s.notaCointestazione}</div>}
+              </td>
               {mostraCategoria && <td className="px-5 py-2.5 text-muted">{CATEGORIA_LABEL[s.categoria] ?? s.categoria}</td>}
               <td className="px-5 py-2.5">{fmtEur(Number(s.importo))}</td>
               <td className="px-5 py-2.5 text-muted">{s.frequenza}</td>

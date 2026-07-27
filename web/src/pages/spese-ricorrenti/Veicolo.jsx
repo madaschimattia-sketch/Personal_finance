@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
-import { supabase } from "../../lib/supabase.js";
 import SpeseFisseTable from "../../components/SpeseFisseTable.jsx";
 import { useFilters } from "../../context/FiltersContext.jsx";
 import { CATEGORIE_SPESE_VEICOLO } from "../../lib/categorie.js";
+import { caricaSpeseFisseConQuota } from "../../lib/spesaFissa.js";
 
 export default function Veicolo() {
-  const { intestatarioId } = useFilters();
+  const { intestatari, intestatarioId } = useFilters();
   const [stato, setStato] = useState("loading");
   const [righe, setRighe] = useState([]);
 
@@ -14,14 +14,9 @@ export default function Veicolo() {
     let annullato = false;
     (async () => {
       try {
-        const { data, error } = await supabase.from("spese_fisse_manuali")
-          .select("nome, categoria, importo, frequenza, attivo, data_inizio")
-          .in("categoria", CATEGORIE_SPESE_VEICOLO)
-          .eq("intestatario_id", intestatarioId)
-          .order("categoria");
-        if (error) throw error;
+        const data = await caricaSpeseFisseConQuota(CATEGORIE_SPESE_VEICOLO, intestatarioId, intestatari);
         if (!annullato) {
-          setRighe(data ?? []);
+          setRighe(data);
           setStato("ready");
         }
       } catch (e) {
@@ -30,7 +25,7 @@ export default function Veicolo() {
       }
     })();
     return () => { annullato = true; };
-  }, [intestatarioId]);
+  }, [intestatarioId, intestatari]);
 
   if (stato === "loading" || !intestatarioId) return <p className="text-sm text-muted">Caricamento...</p>;
   if (stato === "error") return <p className="text-sm text-neg">Errore nel caricamento di Veicolo.</p>;

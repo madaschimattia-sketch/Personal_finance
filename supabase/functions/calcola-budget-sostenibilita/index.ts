@@ -33,11 +33,15 @@ Deno.serve(async (req: Request) => {
     const body = await req.json().catch(() => ({}));
     const intestatarioId: string | undefined = body?.intestatario_id;
 
-    const { data: parametriRows, error: parErr } = await admin
-      .from("config_budget_parametri")
-      .select("chiave, valore, intestatario_id")
-      .eq("user_id", userId)
-      .in("intestatario_id", intestatarioId ? [intestatarioId, null] : [null]);
+    // .in() non intercetta mai le righe NULL (semantica SQL: IN non matcha mai NULL,
+    // nemmeno passando null nell'array) — serve .or()/.is() per prendere sia
+    // l'eventuale override per intestatario sia il default globale (intestatario_id
+    // IS NULL). Bug reale corretto qui: prima faceva sempre 500 "Parametro mancante".
+    let parametriQuery = admin.from("config_budget_parametri").select("chiave, valore, intestatario_id").eq("user_id", userId);
+    parametriQuery = intestatarioId
+      ? parametriQuery.or(`intestatario_id.eq.${intestatarioId},intestatario_id.is.null`)
+      : parametriQuery.is("intestatario_id", null);
+    const { data: parametriRows, error: parErr } = await parametriQuery;
     if (parErr) return json(500, { error: `Lettura config_budget_parametri fallita: ${parErr.message}` });
     // Se esiste un override per l'intestatario, prevale sul default (intestatario_id null).
     const paramByChiave = new Map<string, number>();

@@ -37,7 +37,7 @@ export function FiltersProvider({ children }) {
   useEffect(() => {
     let annullato = false;
     (async () => {
-      const { data } = await supabase.from("intestatari").select("id, nome, cognome").order("nome");
+      const { data } = await supabase.from("intestatari").select("id, nome, cognome, relazione").order("nome");
       if (annullato) return;
       const lista = data ?? [];
       setIntestatari(lista);

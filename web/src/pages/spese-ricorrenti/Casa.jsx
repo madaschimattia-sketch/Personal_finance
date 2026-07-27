@@ -3,8 +3,11 @@ import { supabase } from "../../lib/supabase.js";
 import { fmtEur } from "../../lib/format.js";
 import Card from "../../components/Card.jsx";
 import SpeseFisseTable from "../../components/SpeseFisseTable.jsx";
+import DateRangeSlider from "../../components/DateRangeSlider.jsx";
 import { useFilters } from "../../context/FiltersContext.jsx";
 import { CATEGORIA_LABEL } from "../../lib/categorie.js";
+import { caricaQuoteDomicili, QUOTA_DOMICILIO_DEFAULT } from "../../lib/domicilio.js";
+import { caricaSpeseFisseConQuota } from "../../lib/spesaFissa.js";
 
 // Ambito Casa: bollette utenze_bollette (luce/gas/acqua/internet/condominio/
 // affitto/mutuo/tari/imu, a livello di domicilio) + assicurazione_casa da
@@ -197,59 +200,67 @@ function ChartCostoEnergiaRai({ dati }) {
 }
 
 export default function Casa() {
-  const { intestatarioId, periodoGiorni } = useFilters();
+  const { intestatari, intestatarioId } = useFilters();
   const [stato, setStato] = useState("loading");
-  const [bollette, setBollette] = useState([]);
-  const [luce, setLuce] = useState([]);
+  const [bolletteGrezze, setBolletteGrezze] = useState([]);
+  const [luceGrezza, setLuceGrezza] = useState([]);
   const [assicurazioniCasa, setAssicurazioniCasa] = useState([]);
   const [domicili, setDomicili] = useState(new Map());
+  const [quoteDomicili, setQuoteDomicili] = useState(new Map());
+  const [range, setRange] = useState(null);
 
   useEffect(() => {
+    if (!intestatarioId) return;
     let annullato = false;
     (async () => {
       try {
-        let cutoff = null;
-        if (periodoGiorni) {
-          const d = new Date();
-          d.setDate(d.getDate() - periodoGiorni);
-          cutoff = d.toISOString().slice(0, 10);
-        }
-
-        let bolletteQuery = supabase.from("utenze_bollette")
+        // Niente più cutoff periodoGiorni qui: le bollette luce sono mensili/
+        // bimestrali e un taglio fisso a giorni-da-oggi mostra spesso mezzo
+        // periodo di fatturazione. Si carica tutto lo storico disponibile e si
+        // filtra client-side con lo slider "between" (vedi DateRangeSlider).
+        const bolletteQuery = supabase.from("utenze_bollette")
           .select("categoria, fornitore, importo, data_emissione, frequenza, domicilio_id")
           .neq("categoria", "luce")
           .order("data_emissione", { ascending: false });
-        if (cutoff) bolletteQuery = bolletteQuery.gte("data_emissione", cutoff);
 
-        let luceQuery = supabase.from("utenze_bollette")
-          .select("periodo_da, periodo_a, importo, consumo, unita_misura, canone_rai_eur")
+        const luceQuery = supabase.from("utenze_bollette")
+          .select("periodo_da, periodo_a, importo, consumo, unita_misura, canone_rai_eur, domicilio_id")
           .eq("categoria", "luce")
           .order("periodo_da", { ascending: true });
-        if (cutoff) luceQuery = luceQuery.gte("periodo_da", cutoff);
 
         // Assicurazione casa e' l'unica categoria "Casa" che vive in
-        // spese_fisse_manuali (personale, per intestatario) invece che in
-        // utenze_bollette (a livello di domicilio).
-        let assicurazioneQuery = supabase.from("spese_fisse_manuali")
-          .select("nome, importo, frequenza, attivo, data_inizio")
-          .eq("categoria", "assicurazione_casa");
-        if (intestatarioId) assicurazioneQuery = assicurazioneQuery.eq("intestatario_id", intestatarioId);
-
-        const [bolletteQ, luceQ, assicurazioneQ, domiciliQ] = await Promise.all([
+        // spese_fisse_manuali (cointestabile per riga) invece che in
+        // utenze_bollette (cointestabile per domicilio).
+        const [bolletteQ, luceQ, assicurazioneCasaData, domiciliQ, quote] = await Promise.all([
           bolletteQuery,
           luceQuery,
-          assicurazioneQuery,
+          caricaSpeseFisseConQuota(["assicurazione_casa"], intestatarioId, intestatari),
           supabase.from("domicili").select("id, nome"),
+          caricaQuoteDomicili(intestatarioId),
         ]);
         if (bolletteQ.error) throw bolletteQ.error;
         if (luceQ.error) throw luceQ.error;
-        if (assicurazioneQ.error) throw assicurazioneQ.error;
 
         if (!annullato) {
-          setBollette(bolletteQ.data ?? []);
-          setLuce(luceQ.data ?? []);
-          setAssicurazioniCasa(assicurazioneQ.data ?? []);
+          const luceData = luceQ.data ?? [];
+          const bolletteData = bolletteQ.data ?? [];
+          setBolletteGrezze(bolletteData);
+          setLuceGrezza(luceData);
+          setAssicurazioniCasa(assicurazioneCasaData);
           setDomicili(new Map((domiciliQ.data ?? []).map((d) => [d.id, d.nome])));
+          setQuoteDomicili(quote);
+
+          // Default slider: ultimi 12 mesi di dati disponibili (o l'intero
+          // range se più corto) — calcolato una sola volta al primo fetch.
+          const tutteLeDate = [...luceData.map((b) => b.periodo_da), ...bolletteData.map((b) => b.data_emissione)].sort();
+          if (tutteLeDate.length > 0) {
+            const minData = tutteLeDate[0];
+            const maxData = tutteLeDate[tutteLeDate.length - 1];
+            const dodiciMesiFa = new Date(maxData);
+            dodiciMesiFa.setFullYear(dodiciMesiFa.getFullYear() - 1);
+            const inizioDefault = dodiciMesiFa.toISOString().slice(0, 10);
+            setRange([inizioDefault > minData ? inizioDefault : minData, maxData]);
+          }
           setStato("ready");
         }
       } catch (e) {
@@ -258,34 +269,64 @@ export default function Casa() {
       }
     })();
     return () => { annullato = true; };
-  }, [intestatarioId, periodoGiorni]);
+  }, [intestatarioId, intestatari]);
 
-  if (stato === "loading") return <p className="text-sm text-muted">Caricamento...</p>;
+  if (stato === "loading" || !intestatarioId) return <p className="text-sm text-muted">Caricamento...</p>;
   if (stato === "error") return <p className="text-sm text-neg">Errore nel caricamento di Casa.</p>;
 
+  // Quota del domicilio applicata solo ai campi monetari — non a "consumo"
+  // (kWh, dato fisico dell'intera casa: non ha senso "la mia quota di kWh").
+  // Quota 0 esclude interamente le righe di quel domicilio (non le azzera).
+  const conQuota = (righe) => righe
+    .map((r) => ({ ...r, _quota: (quoteDomicili.get(r.domicilio_id) ?? QUOTA_DOMICILIO_DEFAULT).quota }))
+    .filter((r) => r._quota > 0);
+  const bollette = conQuota(bolletteGrezze);
+  const luce = conQuota(luceGrezza);
+
+  const noteCointestazione = [...quoteDomicili.entries()]
+    .filter(([, q]) => q.quota < 1 && q.altri.length > 0)
+    .map(([domicilioId, q]) => {
+      const nomiAltri = q.altri.map((a) => {
+        const i = intestatari.find((x) => x.id === a.intestatario_id);
+        return `${i?.nome ?? "?"} (${Number(a.quota_percentuale)}%)`;
+      }).join(", ");
+      return `Domicilio «${domicili.get(domicilioId) ?? "?"}» cointestato con ${nomiAltri}: gli importi mostrati sono la tua quota.`;
+    });
+
+  const tutteLeDate = [...luce.map((b) => b.periodo_da), ...bollette.map((b) => b.data_emissione)].sort();
+  const minData = tutteLeDate[0] ?? new Date().toISOString().slice(0, 10);
+  const maxData = tutteLeDate[tutteLeDate.length - 1] ?? new Date().toISOString().slice(0, 10);
+  const [dataDa, dataA] = range ?? [minData, maxData];
+
+  const luceInRange = luce.filter((b) => b.periodo_da >= dataDa && b.periodo_da <= dataA);
+  const bolletteInRange = bollette.filter((b) => b.data_emissione >= dataDa && b.data_emissione <= dataA);
+
   const perCategoria = new Map();
-  for (const b of bollette) {
+  for (const b of bolletteInRange) {
     const arr = perCategoria.get(b.categoria) ?? [];
     arr.push(b);
     perCategoria.set(b.categoria, arr);
   }
 
-  const speseTotaliLuce = luce.reduce((s, b) => s + Number(b.importo), 0);
-  const consumoTotaleLuce = luce.reduce((s, b) => s + Number(b.consumo ?? 0), 0);
-  const costoUnitarioMedio = consumoTotaleLuce > 0 ? speseTotaliLuce / consumoTotaleLuce : null;
-  const ultimaLuce = luce[luce.length - 1];
+  // Spesa totale/card monetarie: scalate per quota. Consumo/costo unitario
+  // (tariffa reale del contratto, non quota personale): sui valori grezzi.
+  const speseTotaliLuce = luceInRange.reduce((s, b) => s + Number(b.importo) * b._quota, 0);
+  const speseTotaliLuceGrezze = luceInRange.reduce((s, b) => s + Number(b.importo), 0);
+  const consumoTotaleLuce = luceInRange.reduce((s, b) => s + Number(b.consumo ?? 0), 0);
+  const costoUnitarioMedio = consumoTotaleLuce > 0 ? speseTotaliLuceGrezze / consumoTotaleLuce : null;
+  const ultimaLuce = luceInRange[luceInRange.length - 1];
 
-  const datiCosto = luce.map((b) => ({ label: etichettaAsseData(b.periodo_da), value: Number(b.importo) }));
-  const datiCostoGiornaliero = luce.map((b) => {
+  const datiCosto = luceInRange.map((b) => ({ label: etichettaAsseData(b.periodo_da), value: Number(b.importo) * b._quota }));
+  const datiCostoGiornaliero = luceInRange.map((b) => {
     const giorni = giorniPeriodo(b.periodo_da, b.periodo_a);
-    const importo = Number(b.importo);
+    const importo = Number(b.importo) * b._quota;
     return {
       label: etichettaAsseData(b.periodo_da),
       value: giorni ? importo / giorni : importo,
       sub: giorni ? `${fmtEur(importo)} su ${giorni} giorni` : `${fmtEur(importo)} (periodo non determinato)`,
     };
   });
-  const datiConsumo = luce.map((b) => {
+  const datiConsumo = luceInRange.map((b) => {
     const giorni = giorniPeriodo(b.periodo_da, b.periodo_a);
     const consumo = Number(b.consumo ?? 0);
     return {
@@ -294,13 +335,13 @@ export default function Casa() {
       sub: giorni ? `${consumo} kWh su ${giorni} giorni` : `${consumo} kWh (periodo non determinato)`,
     };
   });
-  const datiCostoUnitario = luce
+  const datiCostoUnitario = luceInRange
     .filter((b) => Number(b.consumo) > 0)
     .map((b) => ({ label: etichettaAsseData(b.periodo_da), value: Number(b.importo) / Number(b.consumo) }));
-  const datiEnergiaRai = luce.map((b) => {
-    const importo = Number(b.importo);
+  const datiEnergiaRai = luceInRange.map((b) => {
+    const importo = Number(b.importo) * b._quota;
     const raiNoto = b.canone_rai_eur != null;
-    const rai = raiNoto ? Number(b.canone_rai_eur) : null;
+    const rai = raiNoto ? Number(b.canone_rai_eur) * b._quota : null;
     return {
       label: etichettaAsseData(b.periodo_da),
       energia: raiNoto ? importo - rai : importo,
@@ -317,14 +358,25 @@ export default function Casa() {
         Per il giudizio di sostenibilità rispetto al reddito vedi <span className="font-semibold">Budget</span>.
       </p>
 
+      {noteCointestazione.map((nota, i) => (
+        <p key={i} className="mb-4 text-sm text-muted">{nota}</p>
+      ))}
+
+      {range && (
+        <Card className="mb-6">
+          <h4 className="mb-3 font-display text-sm font-bold">Periodo</h4>
+          <DateRangeSlider minData={minData} maxData={maxData} value={range} onChange={setRange} />
+        </Card>
+      )}
+
       <h3 className="mb-3 font-display text-base font-bold">Energia — luce</h3>
       <div className="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-4">
         <Card><p className="mb-1 text-xs font-semibold text-muted">Spesa totale</p><p className="font-display text-lg font-extrabold">{fmtEur(speseTotaliLuce)}</p></Card>
-        <Card><p className="mb-1 text-xs font-semibold text-muted">Consumo totale</p><p className="font-display text-lg font-extrabold">{consumoTotaleLuce.toLocaleString("it-IT")} kWh</p></Card>
+        <Card><p className="mb-1 text-xs font-semibold text-muted">Consumo totale</p><p className="font-display text-lg font-extrabold">{consumoTotaleLuce.toLocaleString("en-US")} kWh</p></Card>
         <Card><p className="mb-1 text-xs font-semibold text-muted">Costo unitario medio</p><p className="font-display text-lg font-extrabold">{costoUnitarioMedio !== null ? `${costoUnitarioMedio.toFixed(3)} €/kWh` : "n/d"}</p></Card>
         <Card>
           <p className="mb-1 text-xs font-semibold text-muted">Ultima bolletta</p>
-          <p className="font-display text-lg font-extrabold">{ultimaLuce ? fmtEur(Number(ultimaLuce.importo)) : "n/d"}</p>
+          <p className="font-display text-lg font-extrabold">{ultimaLuce ? fmtEur(Number(ultimaLuce.importo) * ultimaLuce._quota) : "n/d"}</p>
           <p className="text-xs text-muted">{ultimaLuce ? descrizionePeriodo(ultimaLuce.periodo_da, ultimaLuce.periodo_a) : ""}</p>
         </Card>
       </div>
@@ -371,7 +423,7 @@ export default function Casa() {
                     <span className="text-muted">
                       {b.fornitore ?? "—"} · {b.domicilio_id ? domicili.get(b.domicilio_id) : ""} · {b.data_emissione}
                     </span>
-                    <span className="font-semibold">{fmtEur(Number(b.importo))}</span>
+                    <span className="font-semibold">{fmtEur(Number(b.importo) * b._quota)}</span>
                   </li>
                 ))}
               </ul>
