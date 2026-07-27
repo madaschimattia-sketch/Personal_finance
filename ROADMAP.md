@@ -590,6 +590,18 @@ Stessa pipeline Drive/Claude di UTENZE: documento grezzo → dato normalizzato.
       confermare: `CGBD` (Carlyle Secured Lending, una BDC) oggi in Equity;
       `BTCWUSD`/`IB1T` (i due tracker Bitcoin) oggi in Alternative. Usata per
       raggruppare Portafoglio e per l'allocazione in Dashboard.
+- [ ] **Fiscalità di Mattia post-cointestazione 50% — da ricontrollare a fine
+      review** (conto IBKR BUDGETING cointestato con Marco Lazzarini,
+      migration `0041`/`0042`): `calcola-quadro-rt`/`rm`/`rw` ora applicano la
+      quota del 50% (helper `_shared/quota-conto.ts`) invece di calcolare
+      sull'intero conto. L'utente ha confermato che è la logica corretta, ma
+      ha chiesto di rimandare il controllo puntuale dei numeri (imponibili/
+      imposte ricalcolati) a un passaggio di verifica finale, non ora.
+      2023/2024 restano bloccati (`presentata`, mai ricalcolati con la quota
+      corretta — quindi filati sull'intero conto, non sulla metà: da
+      valutare col commercialista se serve una correzione retroattiva);
+      2025/2026 sono gli unici anni su cui "Ricalcola" scrive già coi numeri
+      dimezzati.
 
 ### UTENZE (domicilio Milano — Mac Mahon)
 
@@ -610,10 +622,14 @@ Stessa pipeline Drive/Claude di UTENZE: documento grezzo → dato normalizzato.
 - [ ] **Quota cointestazione 50/50** (Mattia/Martina in
       `domicilio_intestatari`) — assunzione di default in assenza di
       indicazione contraria, confermare che sia la ripartizione corretta.
-- [ ] **`spese_fisse_manuali.intestatario_id`** — le 3 subscription seedate
-      (Spotify Family, Anthropic, HoMobile) sono tutte attribuite a Mattia:
-      confermare che nessuna vada invece attribuita a Martina o considerata
-      condivisa, ora che il filtro utente del frontend usa questo campo.
+      **Aggiornamento**: ora effettivamente applicata anche nel frontend
+      (`Casa.jsx`, prima solo lato server in `calcola-budget-sostenibilita`) —
+      resta da confermare che 50/50 sia la ripartizione reale corretta, non
+      solo che sia applicata coerentemente.
+- [ ] **Cointestazione `spese_fisse_manuali`** — le 3 subscription seedate
+      (Spotify Family, Anthropic, HoMobile) sono tutte attribuite a Mattia al
+      100% (via `spesa_fissa_intestatari`, vedi sotto): confermare che nessuna
+      vada invece attribuita a Martina o considerata condivisa.
 - [ ] **Conguaglio condominiale** (2.928,71€ a favore del conduttore, da
       "Prospetto conguaglio" approvato dalla proprietaria) — verificare che sia
       stato effettivamente restituito/compensato, e aggiornare quando succede.
@@ -871,3 +887,207 @@ parità desktop/mobile da subito.
       non tornano" nella dashboard/viste reali; deciso esplicitamente di
       finalizzare prima tutte le funzionalità e sistemare i numeri in un
       passaggio dedicato successivo (non ancora fatto in questa sessione).
+- [x] **IA Investimenti/Spese ricorrenti + riorganizzazione pagine** —
+      Investimenti (Portafoglio/Fondi Pensione/Fiscalità) + Spese ricorrenti
+      (Casa/Veicolo/Persona), routing nidificato (`<Outlet/>`), nav mobile
+      contestuale, canone RAI su bolletta luce con grafico clustered.
+- [x] **Cointestazione IBKR 50/50 con Marco Lazzarini** (migration
+      `conto_ibkr_cointestato_marco_lazzarini`) applicata a
+      Dashboard/Portafoglio/Proiezioni/quadri fiscali RT/RM/RW — helper
+      condiviso `web/src/lib/conto.js` (`quotaContoIbkr`). Bug fallback quota
+      trovato e corretto (righe presenti ma non per l'intestatario selezionato
+      → quota 0%, non 100%) — pattern poi riusato in tutte le estensioni sotto.
+- [x] **Cointestazione generalizzata + Marco come profilo selezionabile**
+      (migrazioni `marco_intestatario_e_auth_user_id_groundwork` +
+      `spesa_fissa_intestatari_generalizzazione_quota`): su richiesta
+      dell'utente ("ogni conto/spesa deve poter avere una potenziale
+      cointestazione, con nome del cointestatario"), il pattern
+      quota-per-entità (`conto_intestatari`) è stato esteso a tutte le entità:
+      - **Marco Lazzarini torna in `intestatari`** (era stato rimosso perché
+        non doveva comparire nel FilterBar senza dati propri — ora l'utente
+        vuole che tutti e tre i cointestatari abbiano un profilo selezionabile)
+        con la sua riga 50% ripristinata in `conto_intestatari`.
+      - **`domicilio_intestatari`** (Mattia/Martina 50/50 sul domicilio Milano
+        - Mac Mahon, esisteva già ma solo lato server in
+        `calcola-budget-sostenibilita`) è ora applicata anche in `Casa.jsx`
+        (helper `web/src/lib/domicilio.js`, `caricaQuoteDomicili`): importi
+        scalati per quota, riga esclusa (non azzerata) se quota 0%, banner
+        "Domicilio cointestato con X (Y%)". **Non** scala `consumo` (kWh,
+        dato fisico della casa) né `costoUnitarioMedio`/il grafico €/kWh
+        (tariffa reale del contratto, non quota personale) — solo i valori
+        monetari (spesa totale, grafici di costo, bollette per categoria).
+      - **Nuova tabella `spesa_fissa_intestatari`** (mirror esatto di
+        `conto_intestatari`/`domicilio_intestatari`): `spese_fisse_manuali`
+        non ha più una colonna `intestatario_id` singola, la titolarità vive
+        interamente nella tabella figlia (backfill 1:1 delle 3 righe esistenti
+        a 100%). Helper condiviso `web/src/lib/spesaFissa.js`
+        (`caricaSpeseFisseConQuota`), usato da `Veicolo.jsx`/`Persona.jsx`/
+        `Casa.jsx` (assicurazione_casa); nota "Cointestato con Nome (Q%)"
+        mostrata in `SpeseFisseTable.jsx` quando una spesa ha più di un
+        intestatario.
+      - Stesso fix del bug fallback applicato anche a
+        `calcola-budget-sostenibilita` (v5): sia per `domicilio_intestatari`
+        sia per la nuova `spesa_fissa_intestatari` (prima filtrava
+        direttamente per `intestatario_id`, ora legge tutte le righe e
+        distingue "nessuna cointestazione configurata" da "cointestazione
+        configurata ma non per questa persona").
+      - **Groundwork per login separati futuri** (non implementato ora, solo
+        preparato su richiesta esplicita dell'utente: "inizialmente solo io
+        avrò accesso, ma poi vorrò dare accesso a ognuno ai propri dati"):
+        nuova colonna `intestatari.auth_user_id` (nullable, unique, FK
+        `auth.users`) — oggi sempre null per tutti e tre, nessuna policy RLS
+        riscritta (tutte restano `auth.uid() = user_id`, tutto sotto l'unico
+        account di Mattia). **Disegno futuro da seguire quando servirà**:
+        creare un account Auth reale per Martina/Marco, valorizzare il loro
+        `auth_user_id`, poi estendere ogni policy RLS con un secondo `OR` che
+        concede SELECT alla persona il cui `auth_user_id` compare in una riga
+        (quota > 0) di `conto_intestatari`/`domicilio_intestatari`/
+        `spesa_fissa_intestatari` collegata a quell'entità; per dati
+        intrinsecamente personali senza tabella `*_intestatari`
+        (`introiti_buste_paga`, i quadri fiscali) lo scoping sarà
+        `intestatario_id = (select id from intestatari where auth_user_id =
+        auth.uid())`.
+- [x] **Slider "between" per il range date in Casa.jsx** — il preset globale
+      `periodoGiorni` (30/90/365 giorni) tagliava male le bollette
+      mensili/bimestrali (mezzo periodo di fatturazione mostrato o escluso).
+      Nuovo componente `web/src/components/DateRangeSlider.jsx` (dual-thumb,
+      due `<input type="range">` sovrapposti, stile in `index.css`
+      `.range-thumb`): `Casa.jsx` ora fa fetch completo (nessun cutoff
+      server-side) e filtra client-side sullo storico effettivo delle
+      bollette, default ultimi 12 mesi disponibili.
+- [x] **Convenzione cartelle Drive per conti/utenze future** — decisa con
+      l'utente in vista dei prossimi conti/utenze (Martina 100%, altre
+      persone 100% o cointestate 50%): **una cartella per conto/istituto,
+      mai per persona**. L'intestazione (100%, 50%, di chi) vive **solo nel
+      DB** (`conto_intestatari`/`domicilio_intestatari`/
+      `spesa_fissa_intestatari`), mai dedotta dal path Drive — un conto
+      cointestato sta in un'unica cartella (come già oggi IBKR, Mattia/Marco,
+      senza sottocartella per persona). Nessuna cartella
+      MATTIA/MARTINA/COINTESTATI da creare: se in futuro serve distinguere
+      due conti simili di persone diverse, il nome della cartella può
+      includere il titolare (es. "BANCA GENERALI MARTINA" se lei ne aprisse
+      uno separato), ma resta organizzata per conto, non per persona.
+- [x] **Onboarding conto Banca Generali (100% Mattia, regime amministrato)**
+      da screenshot + XLS, nessun export nativo dei movimenti disponibile:
+      - **Bug di scoping conto trovato e corretto prima di aggiungere un
+        secondo conto attivo**: sia `web/src/lib/conto.js`
+        (`quotaContoIbkr`) sia `supabase/functions/_shared/quota-conto.ts`
+        (`quotaContoProprietario`) assumevano **un solo conto attivo**
+        (`conti.eq("attivo", true).limit(1).maybeSingle()`, senza filtro sul
+        broker) — con un secondo conto attivo la query sarebbe diventata non
+        deterministica, rompendo silenziosamente la quota IBKR già validata
+        (Dashboard/Portafoglio/Proiezioni **e** i quadri fiscali RT/RM/RW).
+        Corretto aggiungendo `.eq("broker", "IBKR")` a entrambe; redeploy di
+        `calcola-quadro-rt`/`rm`/`rw` (importano il file condiviso).
+      - **Nuovo conto** (migration `conto_banca_generali_e_7_strumenti`):
+        `conti` (`broker='Banca Generali'`, `regime_fiscale='amministrato'`
+        — la banca applica da sola l'imposta sostitutiva, **niente
+        RT/RM/RW per questo conto**), `conto_intestatari` 100% Mattia, 7
+        nuovi `tax_instruments` (2 ISIN — `FR0014001NN8`, `FR0010361683` —
+        già esistevano da IBKR, stesso strumento riusato per ISIN). Asset
+        class verificate via ricerca (Morningstar/documentazione ufficiale,
+        non per assunzione): 5 Equity (`LU0552385295`, `LU0210534227`,
+        `LU0861579778` "AB Low Volatility Equity Portfolio", `LU1278928491`,
+        `FR0010361683`), 4 Fixed Income (`IE00B8J38129`, `IE00B84J9L26`,
+        `FR0014001NN8`, `XS2829209720`). Nessuno multi-asset.
+      - **48 screenshot letti** (conferme d'ordine, non snapshot periodici) e
+        **47 movimenti inseriti** in `movimenti` (NON `tax_movements`/
+        `tax_lots` — quelli alimenterebbero RT/RM, sbagliato per un conto
+        amministrato): un file scartato come duplicato/ritaglio dello stesso
+        ordine (`20250404_LU0552385295_2.png`, stesso numero ordine
+        47427098). Due fondi con PAC ricorrente (`LU0552385295`,
+        `LU0210534227`), un ETF (`FR0010361683`) con 3 acquisti ricorrenti,
+        il resto operazioni puntuali.
+      - **Snapshot posizioni attuali** (`posizioni_aperte_ibkr`,
+        `report_date` 24/07/2026, riuso pragmatico della tabella IBKR — già
+        generica, nessun rinomina) dai 4 XLS allegati (parsati con la
+        libreria `xlsx`, XLS binari veri).
+      - **Riconciliazione**: quote nette per ISIN (screenshot) vs
+        Quote/Quantità XLS — **8 strumenti su 9 coincidono esattamente**.
+        Unica discrepanza: **`FR0010361683` (ETF Amundi MSCI India),
+        150 quote ricostruite contro 200 nell'XLS** — 50 unità mancanti,
+        verosimilmente un acquisto precedente al primo screenshot trovato
+        per questo ISIN (12/06/2025), di cui l'utente non ha (o non ha
+        ancora fornito) la conferma d'ordine. **Da chiarire con l'utente**,
+        non colmato con un dato inventato.
+      - **Commissioni**: le "Spese"/"Commissioni" negli screenshot risultano
+        quasi sempre `-` (non itemizzate) — registrate come lette (spesso 0),
+        **non ricalcolate**: l'utente ha chiesto una verifica manuale in un
+        secondo momento, non bloccante per questo backfill.
+      - **Frontend**: nuovo `web/src/lib/bancaGenerali.js`
+        (`quotaBancaGenerali` 100%/0% mai frazionario,
+        `caricaPosizioniBancaGenerali` aggregazione per ISIN da `movimenti`
+        a costo medio ponderato, niente lot-matching) — posizioni concatenate
+        a quelle IBKR in `Portafoglio.jsx` (stessa forma riga, stesso
+        raggruppamento per asset class) e sommate a patrimonio totale +
+        allocazione + Top 5 in `Dashboard.jsx`.
+- [ ] **Sync automatico su nuovi file Drive — requisito permanente per ogni
+      conto/utenza futuro** (non solo Banca Generali, vale anche per le
+      bollette): confermato esplicitamente dall'utente come obiettivo
+      trasversale. Richiede OAuth Drive API scope + polling/webhook + edge
+      function di parsing automatico (stesso tipo di setup già fatto in
+      LMadvisory per Google Calendar) — non ancora costruito, resta un
+      progetto a sé. In questo giro solo backfill one-time.
+- [x] **Onboarding conto Widiba (100% Mattia, regime amministrato)** da 2
+      export xlsx nativi (`Movimenti Portafoglio_2025.xlsx`/`_2026.xlsx`,
+      formato diverso da Banca Generali: nessuno screenshot, export diretto
+      dal sito Widiba):
+      - **Codice condiviso estratto**: la logica di
+        `lib/bancaGenerali.js` (quota 100%/0% + aggregazione posizioni da
+        `movimenti` a costo medio ponderato) era ormai duplicata al secondo
+        conto dello stesso tipo, con altri in programma (Martina, altri
+        intestatari) — spostata in un nuovo `web/src/lib/contoGenerico.js`
+        (`quotaContoGenerico(broker, intestatarioId)` +
+        `caricaPosizioniContoGenerico(broker, intestatarioId)`).
+        `bancaGenerali.js` e il nuovo `widiba.js` sono ora thin wrapper che
+        chiamano la factory con il proprio `broker`.
+      - **Prima esportazione 2025 incompleta**: il primo file caricato aveva
+        i filtri dell'export Widiba impostati su `Entrate` (solo entrate,
+        escludeva ogni acquisto/uscita) e `Importo 0-250` (escludeva ogni
+        entrata sopra 250€) — segnalato esplicitamente all'utente prima di
+        procedere (nessun dato inventato per colmare il buco). L'utente ha
+        confermato che il file, per come filtrato, coincide comunque con la
+        storia reale del conto per il 2025 (l'unica attività dell'anno erano
+        i trasferimenti + una vendita, nessun acquisto/entrata esclusi dai
+        filtri).
+      - **Trasferimenti titoli da conto esterno** ("Carico"/"Carico giro
+        deposito", 7 righe totali): nessun esborso reale da Widiba (titoli
+        arrivati da un conto esterno non tracciato in quest'app) ma, su
+        indicazione esplicita dell'utente, registrati in `movimenti` come
+        acquisti normali — quantità in ingresso, costo = prezzo del
+        trasferimento. Per le 4 righe in USD (Virgin Galactic, Oklo, Nano
+        Nuclear, Nvidia) il cambio EUR/USD storico è stato recuperato da
+        Frankfurter/ECB (`api.frankfurter.dev`, dati ECB) per la data esatta
+        del trasferimento — **non stimato**, e verificato per coerenza
+        contro il cambio implicito nelle vendite reali in USD dello stesso
+        periodo (scostamento <0.5%).
+      - **Coppie "Apertura vincolo"/"Chiusura vincolo"** (stesso giorno,
+        stessa quantità, 6 righe) — confermate dall'utente come non-evento
+        di custodia, non importate.
+      - **Riga "Addebito biglietto assemblea"** (-5€, Officina Stellare) —
+        importata con `quantita=null` per audit, ma senza alcun effetto
+        sulla posizione/costo medio (il motore di aggregazione qui non
+        modella un ledger di cassa separato, stesso limite già presente per
+        Banca Generali).
+      - **Riga "Dividendi" Nvidia** — importata con `quantita=null` (non è
+        un evento di quantità titoli), `importo` il netto EUR effettivo.
+      - **Cross-account**: Nvidia e Nano Nuclear Energy risultavano già in
+        `tax_instruments` (detenute anche su IBKR, `asset_class` non
+        ancora valorizzato) — righe riusate per ISIN (stesso pattern di
+        Banca Generali/FR0014001NN8), `asset_class` backfillato a `Equity`
+        contestualmente. Verificato via query che tutti i `tax_movements`/
+        `tax_lots` esistenti per questi 2 ISIN appartengono al conto IBKR,
+        zero contaminazione dal nuovo conto Widiba.
+      - **Nessuno snapshot posizioni attuali** disponibile per Widiba (a
+        differenza di Banca Generali, qui non c'è un dossier XLS con i
+        prezzi correnti): le 4 posizioni aperte (L&G Hydrogen Economy ETF,
+        Officina Stellare, Oklo, Nano Nuclear) mostrano quantità e costo ma
+        `valoreAttuale` resta `null` (nessun prezzo stimato) finché non
+        verrà caricato uno snapshot — stesso limite del Fondo Pensione
+        (nessuna quotazione live).
+- [ ] **DA FARE prima della prossima fase di verifiche**: costruire un
+      meccanismo di snapshot prezzi per Widiba (oggi assente — vedi punto
+      sopra). Serve almeno un modo (manuale via export, o automatico via
+      provider prezzi) per valorizzare le 4 posizioni aperte; finché manca,
+      `valoreAttuale` resta `null` e quelle posizioni non contribuiscono al
+      patrimonio totale/allocazione mostrati in Dashboard/Portafoglio.
