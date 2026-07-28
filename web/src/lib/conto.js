@@ -24,3 +24,15 @@ export async function quotaContoIbkr(intestatarioId) {
   const riga = righeConto.find((r) => r.intestatario_id === intestatarioId);
   return riga ? Number(riga.quota_percentuale) / 100 : 0;
 }
+
+// Id del conto IBKR, per scopare esplicitamente le query su
+// posizioni_aperte_ibkr (tabella condivisa con Banca Generali/Widiba/BG Saxo,
+// vedi contoGenerico.js): senza questo filtro, "ultimo report_date" e il
+// join per isin/conid in Dashboard.jsx/Portafoglio.jsx prendevano lo snapshot
+// più recente su TUTTI i conti, non solo IBKR — bug reale che dava valori
+// nulli o scambiati tra conti quando un conto amministrato aveva uno
+// snapshot più recente di quello IBKR.
+export async function contoIdIbkr() {
+  const { data: conto } = await supabase.from("conti").select("id").eq("attivo", true).eq("broker", "IBKR").limit(1).maybeSingle();
+  return conto?.id ?? null;
+}
