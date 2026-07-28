@@ -8,6 +8,7 @@ import { CATEGORIA_LABEL } from "../lib/categorie.js";
 import { quotaContoIbkr } from "../lib/conto.js";
 import { caricaPosizioniBancaGenerali } from "../lib/bancaGenerali.js";
 import { caricaPosizioniWidiba } from "../lib/widiba.js";
+import { caricaPosizioniBgSaxo } from "../lib/bgSaxo.js";
 
 const RENDIMENTO_CATEGORIE = ["cash", "stock", "bonds", "funds", "commodities", "crypto"];
 const GIUDIZIO_LABEL = { sostenibile: "Sostenibile", attenzione: "Attenzione", rischio: "A rischio" };
@@ -193,7 +194,7 @@ export default function Dashboard() {
           .order("report_date", { ascending: true });
         if (cutoff) navQuery = navQuery.gte("report_date", cutoff);
 
-        const [navQ, rendimentiQ, eventiQ, budgetRes, lottiQ, strumentiQ, fondiQ, quota, posizioniBancaGenerali, posizioniWidiba] = await Promise.all([
+        const [navQ, rendimentiQ, eventiQ, budgetRes, lottiQ, strumentiQ, fondiQ, quota, posizioniBancaGenerali, posizioniWidiba, posizioniBgSaxo] = await Promise.all([
           navQuery,
           supabase.from("config_rendimenti_attesi").select("categoria, rendimento_atteso_pct"),
           supabase.from("tax_events").select("anno, imposta_eur"),
@@ -204,6 +205,7 @@ export default function Dashboard() {
           quotaContoIbkr(intestatarioId),
           caricaPosizioniBancaGenerali(intestatarioId),
           caricaPosizioniWidiba(intestatarioId),
+          caricaPosizioniBgSaxo(intestatarioId),
         ]);
 
         // Conto IBKR cointestato: ogni valore in EUR va scalato alla quota
@@ -245,6 +247,7 @@ export default function Dashboard() {
             posizioniFondi,
             posizioniBancaGenerali,
             posizioniWidiba,
+            posizioniBgSaxo,
             lotti: quota === 0 ? [] : (lottiQ.data ?? []),
             strumenti: strumentiQ.data ?? [],
             rendimentiCategoria: rendimentiQ.data ?? [],
@@ -264,7 +267,7 @@ export default function Dashboard() {
   if (stato === "loading" || !intestatarioId) return <p className="text-sm text-muted">Caricamento...</p>;
   if (stato === "error" || !dati) return <p className="text-sm text-neg">Errore nel caricamento dei dati.</p>;
 
-  const { navSerie, posizioni, posizioniFondi, posizioniBancaGenerali, posizioniWidiba, lotti, strumenti, rendimentiCategoria, eventiFiscali, budget } = dati;
+  const { navSerie, posizioni, posizioniFondi, posizioniBancaGenerali, posizioniWidiba, posizioniBgSaxo, lotti, strumenti, rendimentiCategoria, eventiFiscali, budget } = dati;
   const ultima = navSerie[navSerie.length - 1];
   const prima = navSerie[0];
   const patrimonioIbkr = ultima ? Number(ultima.total_eur) : 0;
@@ -280,7 +283,8 @@ export default function Dashboard() {
   const fondoPensioneTotale = [...controvaloreFondoPerId.values()].reduce((s, v) => s + v, 0);
   const valoreBancaGeneraliTotale = posizioniBancaGenerali.reduce((s, r) => s + (r.valoreAttuale ?? 0), 0);
   const valoreWidibaTotale = posizioniWidiba.reduce((s, r) => s + (r.valoreAttuale ?? 0), 0);
-  const patrimonioTotale = patrimonioIbkr + fondoPensioneTotale + valoreBancaGeneraliTotale + valoreWidibaTotale;
+  const valoreBgSaxoTotale = posizioniBgSaxo.reduce((s, r) => s + (r.valoreAttuale ?? 0), 0);
+  const patrimonioTotale = patrimonioIbkr + fondoPensioneTotale + valoreBancaGeneraliTotale + valoreWidibaTotale + valoreBgSaxoTotale;
 
   const deltaPct = ultima && prima ? ((Number(ultima.total_eur) - Number(prima.total_eur)) / Number(prima.total_eur)) * 100 : 0;
 
@@ -305,7 +309,7 @@ export default function Dashboard() {
   // Income/Commodities), quindi confluiscono nella stessa allocazione
   // dell'IBKR — a differenza del fondo pensione, tenuto volutamente fuori
   // (illiquido/vincolato).
-  for (const r of [...posizioniBancaGenerali, ...posizioniWidiba]) {
+  for (const r of [...posizioniBancaGenerali, ...posizioniWidiba, ...posizioniBgSaxo]) {
     const chiave = r.assetClass ?? "Other";
     valorePerClasse.set(chiave, (valorePerClasse.get(chiave) ?? 0) + (r.valoreAttuale ?? 0));
   }
@@ -355,7 +359,8 @@ export default function Dashboard() {
   });
   const top5BancaGenerali = posizioniBancaGenerali.map((r) => ({ chiave: r.isin, nome: r.symbol, valore: r.valoreAttuale ?? 0 }));
   const top5Widiba = posizioniWidiba.map((r) => ({ chiave: r.isin, nome: r.symbol, valore: r.valoreAttuale ?? 0 }));
-  const top5 = [...top5Ibkr, ...top5BancaGenerali, ...top5Widiba].sort((a, b) => b.valore - a.valore).slice(0, 5);
+  const top5BgSaxo = posizioniBgSaxo.map((r) => ({ chiave: r.isin, nome: r.symbol, valore: r.valoreAttuale ?? 0 }));
+  const top5 = [...top5Ibkr, ...top5BancaGenerali, ...top5Widiba, ...top5BgSaxo].sort((a, b) => b.valore - a.valore).slice(0, 5);
 
   const nomeSelezionato = intestatari.find((i) => i.id === intestatarioId)?.nome ?? "";
 
@@ -399,9 +404,10 @@ export default function Dashboard() {
           <Card className="transition-shadow hover:shadow-lg">
             <h3 className="mb-1 font-display text-base font-bold">Portafoglio</h3>
             <p className="mb-4 text-xs text-muted">
-              {posizioni.length + posizioniBancaGenerali.length + posizioniWidiba.length} posizioni aperte + liquidità · IBKR
+              {posizioni.length + posizioniBancaGenerali.length + posizioniWidiba.length + posizioniBgSaxo.length} posizioni aperte + liquidità · IBKR
               {posizioniBancaGenerali.length > 0 ? " + Banca Generali" : ""}
               {posizioniWidiba.length > 0 ? " + Widiba" : ""}
+              {posizioniBgSaxo.length > 0 ? " + BG Saxo" : ""}
             </p>
             <p className="mb-3.5 font-display text-2xl font-extrabold tracking-tight">{fmtEur(portafoglioValore)}</p>
             <AllocationBar gruppi={allocGruppi} />

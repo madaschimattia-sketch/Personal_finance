@@ -6,6 +6,7 @@ import { useFilters } from "../../context/FiltersContext.jsx";
 import { quotaContoIbkr } from "../../lib/conto.js";
 import { caricaPosizioniBancaGenerali } from "../../lib/bancaGenerali.js";
 import { caricaPosizioniWidiba } from "../../lib/widiba.js";
+import { caricaPosizioniBgSaxo } from "../../lib/bgSaxo.js";
 
 // Aggregazione client-side di tax_lots aperti + valore attuale dall'ultimo snapshot
 // posizioni_aperte_ibkr, raggruppata per asset_class (classificazione normalizzata
@@ -161,13 +162,15 @@ export default function Portafoglio() {
           };
         });
 
-        // Conti Banca Generali/Widiba: 100%/0% per intestatario (mai frazionario,
-        // vedi lib/contoGenerico.js), righe già nella stessa forma di quelle IBKR.
-        const [risultatoBancaGenerali, risultatoWidiba] = await Promise.all([
+        // Conti Banca Generali/Widiba/BG Saxo: 100%/0% per intestatario (mai
+        // frazionario, vedi lib/contoGenerico.js), righe già nella stessa forma
+        // di quelle IBKR.
+        const [risultatoBancaGenerali, risultatoWidiba, risultatoBgSaxo] = await Promise.all([
           caricaPosizioniBancaGenerali(intestatarioId),
           caricaPosizioniWidiba(intestatarioId),
+          caricaPosizioniBgSaxo(intestatarioId),
         ]);
-        const risultato = [...risultatoIbkr, ...risultatoBancaGenerali, ...risultatoWidiba].sort((a, b) => a.symbol.localeCompare(b.symbol));
+        const risultato = [...risultatoIbkr, ...risultatoBancaGenerali, ...risultatoWidiba, ...risultatoBgSaxo].sort((a, b) => a.symbol.localeCompare(b.symbol));
 
         // La liquidità IBKR fa parte a tutti gli effetti del portafoglio investito:
         // riga sintetica senza costo/P&L (non ha un prezzo di carico), ma conta nel

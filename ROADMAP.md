@@ -1090,4 +1090,57 @@ parità desktop/mobile da subito.
       sopra). Serve almeno un modo (manuale via export, o automatico via
       provider prezzi) per valorizzare le 4 posizioni aperte; finché manca,
       `valoreAttuale` resta `null` e quelle posizioni non contribuiscono al
-      patrimonio totale/allocazione mostrati in Dashboard/Portafoglio.
+      patrimonio totale/allocazione mostrati in Dashboard/Portafoglio. Stesso
+      problema, stesso gap, anche per BG Saxo (vedi sotto).
+- [x] **Onboarding conto BG Saxo (100% Mattia, regime amministrato)** da 2
+      export nativi Saxo (`Transactions_20134226_2025-01-18_2025-12-31.xlsx`/
+      `_2026-01-01_2026-07-27.xlsx`, formato multi-sezione Transazioni/
+      Contrattazioni/Bookings): 33 movimenti reali (acquisti/vendite,
+      dividendi Nvidia con ritenute USA+Italia già nel netto, ritenuta
+      automatica su una plusvalenza reale — prova diretta del regime
+      amministrato, non assunta —, imposta di bollo trimestrale, depositi,
+      3 trasferimenti in uscita verso Widiba).
+      - **BG Saxo è il "conto esterno" dei trasferimenti Widiba**: i prezzi
+        USD dei 3 "Trasferimento in uscita" (Oklo 85@19,21$, Nvidia 40@111,68$,
+        Nano Nuclear 200@23,53$, 22/01/2026) coincidono esattamente con quelli
+        usati per stimare il costo dei "Carico" corrispondenti in Widiba —
+        confermato non per assunzione ma per riscontro diretto dei dati.
+        **Corretti i 3 movimenti Widiba** con il costo storico reale
+        ricostruito da BG Saxo (media ponderata sugli acquisti originali)
+        al posto della stima via cambio ECB storico: differenza totale
+        ~773€ (l'8% in più) — Nvidia 4.199,37€ (vs stima 3.808,83€), Oklo
+        1.486,06€ (vs 1.392,39€), Nano Nuclear 4.301,03€ (vs 4.012,62€).
+      - **Un evento non tracciato per scelta esplicita dell'utente**: la
+        plusvalenza di 203,45€ sulla vendita WisdomTree Silver 3x
+        (25/03/2026) non mostra una riga di ritenuta esplicita nei dati letti
+        — l'utente ha confermato che il regime amministrato la gestisce
+        comunque (ritenuta alla fonte), quindi non richiede una riga
+        `ritenuta` separata come fatto invece per la plusvalenza Nano
+        Nuclear del 04/03/2025 (dove la ritenuta era esplicita nei dati).
+      - **Nuovi strumenti**: 2 ETN a leva su materie prime (WisdomTree Gold
+        3x `IE00B8HGT870`, WisdomTree Silver 3x `XS3306516876`) →
+        `Commodities`; 1 ETN su volatilità (WisdomTree S&P 500 VIX 2.25x
+        `XS2819843736`) → `Alternative` (prodotto di trading sulla
+        volatilità, non una materia prima). Nvidia/Oklo/Nano Nuclear
+        riusati per ISIN (stesso strumento di IBKR e Widiba).
+      - **Nuovo `web/src/lib/bgSaxo.js`** (thin wrapper su
+        `contoGenerico.js`, stesso pattern di Banca Generali/Widiba),
+        integrato in Portafoglio.jsx/Dashboard.jsx. Verificato via query
+        che zero righe `tax_movements` risultano collegate a BG Saxo/Widiba/
+        Banca Generali — nessuna contaminazione del motore fiscale IBKR.
+      - **Nessuno snapshot prezzi** per BG Saxo (stesso gap di Widiba,
+        vedi punto sopra): posizioni aperte (WisdomTree Gold 3x 28 unità,
+        WisdomTree Silver 3x 434 unità) con quantità/costo tracciati ma
+        `valoreAttuale` `null`.
+- [x] **Fondo Pensione AXA — snapshot 2025 + versamento 2023**: nuovo
+      screenshot del rendiconto annuale (scansione senza testo estraibile —
+      letto dai valori forniti direttamente dall'utente, non tramite OCR).
+      Aggiunto `fondo_pensione_posizione` al 01/01/2026 (7.282,84€, tutto
+      in AXA Pension Long Terme dopo uno switch interno Euro-0→Long Terme
+      di giugno 2025 — lo switch non è stato registrato come versamento,
+      solo come riposizionamento interno, altrimenti avrebbe raddoppiato i
+      contributi). Colmato anche un buco nei `fondo_pensione_versamenti`:
+      mancava il versamento 2023 (1.600€ + 1.600€, stesso schema del 2022,
+      confermato dall'utente ma **senza documentazione di supporto ancora
+      reperita** — annotato esplicitamente in `note` come proxy da
+      correggere se emerge il documento originale).
