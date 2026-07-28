@@ -5,7 +5,7 @@ import { fmtEur, fmtPct } from "../lib/format.js";
 import Card from "../components/Card.jsx";
 import { useFilters } from "../context/FiltersContext.jsx";
 import { CATEGORIA_LABEL } from "../lib/categorie.js";
-import { quotaContoIbkr } from "../lib/conto.js";
+import { quotaContoIbkr, contoIdIbkr } from "../lib/conto.js";
 import { caricaPosizioniBancaGenerali } from "../lib/bancaGenerali.js";
 import { caricaPosizioniWidiba } from "../lib/widiba.js";
 import { caricaPosizioniBgSaxo } from "../lib/bgSaxo.js";
@@ -194,7 +194,7 @@ export default function Dashboard() {
           .order("report_date", { ascending: true });
         if (cutoff) navQuery = navQuery.gte("report_date", cutoff);
 
-        const [navQ, rendimentiQ, eventiQ, budgetRes, lottiQ, strumentiQ, fondiQ, quota, posizioniBancaGenerali, posizioniWidiba, posizioniBgSaxo] = await Promise.all([
+        const [navQ, rendimentiQ, eventiQ, budgetRes, lottiQ, strumentiQ, fondiQ, quota, contoId, posizioniBancaGenerali, posizioniWidiba, posizioniBgSaxo] = await Promise.all([
           navQuery,
           supabase.from("config_rendimenti_attesi").select("categoria, rendimento_atteso_pct"),
           supabase.from("tax_events").select("anno, imposta_eur"),
@@ -203,6 +203,7 @@ export default function Dashboard() {
           supabase.from("tax_instruments").select("id, symbol, descrizione, asset_class, isin, conid"),
           supabase.from("fondi_pensione").select("id").eq("intestatario_id", intestatarioId),
           quotaContoIbkr(intestatarioId),
+          contoIdIbkr(),
           caricaPosizioniBancaGenerali(intestatarioId),
           caricaPosizioniWidiba(intestatarioId),
           caricaPosizioniBgSaxo(intestatarioId),
@@ -221,11 +222,11 @@ export default function Dashboard() {
         });
 
         let posizioni = [];
-        if (quota > 0) {
-          const ultimaPosQ = await supabase.from("posizioni_aperte_ibkr").select("report_date").order("report_date", { ascending: false }).limit(1).maybeSingle();
+        if (quota > 0 && contoId) {
+          const ultimaPosQ = await supabase.from("posizioni_aperte_ibkr").select("report_date").eq("conto_id", contoId).order("report_date", { ascending: false }).limit(1).maybeSingle();
           if (ultimaPosQ.data) {
             const { data } = await supabase.from("posizioni_aperte_ibkr")
-              .select("conid, isin, symbol, position_value_eur").eq("report_date", ultimaPosQ.data.report_date)
+              .select("conid, isin, symbol, position_value_eur").eq("conto_id", contoId).eq("report_date", ultimaPosQ.data.report_date)
               .order("position_value_eur", { ascending: false });
             posizioni = (data ?? []).map((p) => ({ ...p, position_value_eur: Number(p.position_value_eur) * quota }));
           }

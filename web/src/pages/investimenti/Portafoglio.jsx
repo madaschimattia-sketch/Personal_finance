@@ -3,7 +3,7 @@ import { supabase } from "../../lib/supabase.js";
 import { fmtEur, fmtPct } from "../../lib/format.js";
 import Card from "../../components/Card.jsx";
 import { useFilters } from "../../context/FiltersContext.jsx";
-import { quotaContoIbkr } from "../../lib/conto.js";
+import { quotaContoIbkr, contoIdIbkr } from "../../lib/conto.js";
 import { caricaPosizioniBancaGenerali } from "../../lib/bancaGenerali.js";
 import { caricaPosizioniWidiba } from "../../lib/widiba.js";
 import { caricaPosizioniBgSaxo } from "../../lib/bgSaxo.js";
@@ -17,6 +17,27 @@ const ASSET_CLASS_LABEL = {
   Liquidity: "Liquidità", Other: "Altro",
 };
 const ASSET_CLASS_ORDER = ["Equity", "Fixed Income", "Real Estate", "Commodities", "Alternative", "Multi-Asset", "Liquidity", "Other"];
+
+const COLONNE = [
+  { chiave: "symbol", label: "Strumento", align: "left" },
+  { chiave: "quantita", label: "Quantità", align: "right" },
+  { chiave: "costo", label: "Costo", align: "right" },
+  { chiave: "valoreAttuale", label: "Valore attuale", align: "right" },
+  { chiave: "plNonRealizzato", label: "P&L", align: "right" },
+  { chiave: "plPct", label: "P&L %", align: "right" },
+];
+
+// I valori null (es. valoreAttuale senza snapshot) vanno sempre in fondo,
+// qualunque sia la direzione di ordinamento — altrimenti "asc" li mette
+// prima di ogni numero reale, che è fuorviante.
+function confrontaColonna(a, b, chiave, dir) {
+  const va = a[chiave], vb = b[chiave];
+  if (va === null && vb === null) return 0;
+  if (va === null) return 1;
+  if (vb === null) return -1;
+  if (chiave === "symbol") return dir * String(va).localeCompare(String(vb));
+  return dir * (Number(va) - Number(vb));
+}
 
 function fmtQty(n) {
   return n.toLocaleString("en-US", { maximumFractionDigits: 1 });
@@ -101,13 +122,28 @@ export default function Portafoglio() {
   const [righe, setRighe] = useState([]);
   const [info, setInfo] = useState("");
   const [serie, setSerie] = useState([]);
+  const [filtro, setFiltro] = useState("");
+  const [ordinamento, setOrdinamento] = useState({ chiave: null, dir: 1 });
+  const [gruppiCollassati, setGruppiCollassati] = useState(() => new Set());
+
+  function alternaOrdinamento(chiave) {
+    setOrdinamento((o) => (o.chiave === chiave ? { chiave, dir: -o.dir } : { chiave, dir: 1 }));
+  }
+
+  function alternaGruppo(chiave) {
+    setGruppiCollassati((prev) => {
+      const nuovo = new Set(prev);
+      if (nuovo.has(chiave)) nuovo.delete(chiave); else nuovo.add(chiave);
+      return nuovo;
+    });
+  }
 
   useEffect(() => {
     if (!intestatarioId) return;
     let annullato = false;
     (async () => {
       try {
-        const quota = await quotaContoIbkr(intestatarioId);
+        const [quota, contoId] = await Promise.all([quotaContoIbkr(intestatarioId), contoIdIbkr()]);
 
         const [{ data: lottiRaw, error: erroreLotti }, { data: strumenti, error: erroreStrumenti }, { data: ultimoNav }] = await Promise.all([
           supabase.from("tax_lots").select("instrument_id, quantita_residua, costo_unitario_eur").eq("stato", "aperto"),
@@ -123,13 +159,13 @@ export default function Portafoglio() {
 
         let ultimaData = null;
         let posizioni = [];
-        if (quota > 0) {
+        if (quota > 0 && contoId) {
           const { data: dataUltima } = await supabase
-            .from("posizioni_aperte_ibkr").select("report_date").order("report_date", { ascending: false }).limit(1).maybeSingle();
+            .from("posizioni_aperte_ibkr").select("report_date").eq("conto_id", contoId).order("report_date", { ascending: false }).limit(1).maybeSingle();
           ultimaData = dataUltima?.report_date ?? null;
           if (ultimaData) {
             const { data } = await supabase.from("posizioni_aperte_ibkr")
-              .select("isin, conid, mark_price, position_value_eur").eq("report_date", ultimaData);
+              .select("isin, conid, mark_price, position_value_eur").eq("conto_id", contoId).eq("report_date", ultimaData);
             posizioni = data ?? [];
           }
         }
@@ -222,12 +258,23 @@ export default function Portafoglio() {
   const plTotale = totaleValore - totaleCosto;
   const plTotalePct = totaleCosto > 0 ? (plTotale / totaleCosto) * 100 : 0;
 
+  // Il filtro testuale e l'ordinamento per colonna agiscono solo sulle
+  // tabelle per gruppo: i totali in alto restano quelli dell'intero
+  // portafoglio, altrimenti filtrare "nvidia" farebbe sembrare che il resto
+  // del patrimonio sia sparito.
+  const righeFiltrate = filtro.trim()
+    ? righe.filter((r) => r.symbol.toLowerCase().includes(filtro.trim().toLowerCase()))
+    : righe;
+
   const gruppi = new Map();
-  for (const r of righe) {
+  for (const r of righeFiltrate) {
     const chiave = r.assetClass ?? "Non classificato";
     const arr = gruppi.get(chiave) ?? [];
     arr.push(r);
     gruppi.set(chiave, arr);
+  }
+  if (ordinamento.chiave) {
+    for (const arr of gruppi.values()) arr.sort((a, b) => confrontaColonna(a, b, ordinamento.chiave, ordinamento.dir));
   }
   const ordineGruppi = [...gruppi.keys()].sort((a, b) => {
     const ia = ASSET_CLASS_ORDER.indexOf(a), ib = ASSET_CLASS_ORDER.indexOf(b);
@@ -263,27 +310,50 @@ export default function Portafoglio() {
         {serie.length > 1 ? <ChartSerie serie={serie} /> : <p className="text-sm text-muted">Storico insufficiente.</p>}
       </Card>
 
+      <input
+        type="text"
+        value={filtro}
+        onChange={(e) => setFiltro(e.target.value)}
+        placeholder="Filtra per nome strumento..."
+        className="mb-5 w-full rounded-chip border border-line bg-surface px-4 py-2.5 text-sm outline-none focus:border-hero sm:w-80"
+      />
+
+      {ordineGruppi.length === 0 && (
+        <p className="text-sm text-muted">Nessuno strumento corrisponde al filtro.</p>
+      )}
+
       {ordineGruppi.map((chiave) => {
         const righeGruppo = gruppi.get(chiave);
         const costoGruppo = righeGruppo.reduce((s, r) => s + r.costo, 0);
         const valoreGruppo = righeGruppo.reduce((s, r) => s + (r.valoreAttuale ?? 0), 0);
         const plGruppo = valoreGruppo - costoGruppo;
+        const collassato = gruppiCollassati.has(chiave);
         return (
           <div key={chiave} className="mb-5">
-            <div className="mb-2 flex items-baseline justify-between">
-              <h3 className="font-display text-sm font-bold">{ASSET_CLASS_LABEL[chiave] ?? chiave}</h3>
+            <button
+              type="button"
+              onClick={() => alternaGruppo(chiave)}
+              className="mb-2 flex w-full items-baseline justify-between text-left"
+            >
+              <h3 className="font-display text-sm font-bold">
+                <span className="mr-1.5 inline-block text-muted transition-transform" style={{ transform: collassato ? "rotate(-90deg)" : "none" }}>▾</span>
+                {ASSET_CLASS_LABEL[chiave] ?? chiave} <span className="text-muted">({righeGruppo.length})</span>
+              </h3>
               <span className="text-xs text-muted">{fmtEur(valoreGruppo)} · {((valoreGruppo / totaleValore) * 100 || 0).toFixed(1)}% del portafoglio</span>
-            </div>
+            </button>
+            {!collassato && (
             <Card className="overflow-x-auto p-0">
               <table className="w-full min-w-[640px] text-sm">
                 <thead>
                   <tr className="border-b border-line text-left text-xs uppercase tracking-wide text-muted">
-                    <th className="px-5 py-3 font-semibold">Strumento</th>
-                    <th className="px-5 py-3 text-right font-semibold">Quantità</th>
-                    <th className="px-5 py-3 text-right font-semibold">Costo</th>
-                    <th className="px-5 py-3 text-right font-semibold">Valore attuale</th>
-                    <th className="px-5 py-3 text-right font-semibold">P&amp;L</th>
-                    <th className="px-5 py-3 text-right font-semibold">P&amp;L %</th>
+                    {COLONNE.map((col) => (
+                      <th key={col.chiave} className={`px-5 py-3 font-semibold ${col.align === "right" ? "text-right" : ""}`}>
+                        <button type="button" onClick={() => alternaOrdinamento(col.chiave)} className="inline-flex items-center gap-1 hover:text-ink">
+                          {col.label}
+                          {ordinamento.chiave === col.chiave && <span>{ordinamento.dir === 1 ? "▲" : "▼"}</span>}
+                        </button>
+                      </th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
@@ -312,6 +382,7 @@ export default function Portafoglio() {
                 </tfoot>
               </table>
             </Card>
+            )}
           </div>
         );
       })}
