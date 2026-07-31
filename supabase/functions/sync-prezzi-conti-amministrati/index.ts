@@ -76,13 +76,21 @@ async function prezzoCorrenteYahoo(ticker: string): Promise<{ prezzo: number; va
 // (verificato a mano sulla pagina FR0014001NN8) — nessun rendering JS
 // necessario. Se il markup cambia il regex smette di matchare e la funzione
 // ritorna null: skip silenzioso, mai un prezzo indovinato da un match parziale.
+//
+// Le pagine /obbligazioni/ quotano "a 100" (percentuale del nominale, es.
+// 101,49 = 101,49% del valore nominale) — convenzione standard di mercato per
+// i bond, diversa dalle pagine /fondi/ (NAV per quota, già in EUR per unità).
+// position che moltiplichiamo per il prezzo qui è sempre il nominale posseduto
+// (dai `movimenti`), quindi per un bond va diviso per 100 prima, altrimenti il
+// controvalore risulta ~100x troppo alto.
 async function prezzoCorrenteBorsaItaliana(url: string): Promise<{ prezzo: number } | null> {
   const res = await fetch(url, { headers: YF_HEADERS });
   if (!res.ok) return null;
   const html = await res.text();
   const match = html.match(/-formatPrice">\s*<strong>\s*([\d.,]+)\s*<\/strong>/);
   if (!match) return null;
-  const prezzo = Number(match[1].replace(/\./g, "").replace(",", "."));
+  let prezzo = Number(match[1].replace(/\./g, "").replace(",", "."));
+  if (url.includes("/obbligazioni/")) prezzo /= 100;
   return prezzo > 0 ? { prezzo } : null;
 }
 
