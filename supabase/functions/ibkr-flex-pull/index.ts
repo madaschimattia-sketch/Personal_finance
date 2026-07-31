@@ -1,8 +1,11 @@
 // ibkr-flex-pull — Ingestione IBKR Flex Query per conto.
 //
-// Protetta da JWT utente (stesso pattern di chat-assistente in LMadvisory): non e' un
-// endpoint pubblico, il service_role serve solo a bypassare RLS in scrittura, l'accesso
-// resta ancorato all'utente autenticato (si processano solo i SUOI conti).
+// Protetta da JWT (stesso pattern di chat-assistente in LMadvisory): non e' un endpoint
+// pubblico. Doppio binario di chiamata: (a) JWT di un utente reale -> processa solo i
+// SUOI conti; (b) la service_role key stessa (cron giornaliero, stesso pattern di
+// sync-prezzi-conti-amministrati) -> nessun utente da risolvere, processa tutti i conti
+// IBKR attivi. In entrambi i casi il service_role interno serve solo a bypassare RLS
+// in scrittura, non e' quello che decide l'accesso.
 //
 // Passi per ogni conto IBKR attivo con flex_query_id configurato:
 //   1) pull XML (SendRequest -> GetStatement con retry)
@@ -47,6 +50,22 @@ function json(status: number, body: unknown) {
     status,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
+}
+
+// Legge il claim "role" dal payload del JWT (nessuna verifica di firma qui: il
+// gate verify_jwt della piattaforma l'ha già fatta prima che il codice arrivi
+// fin qui). Preferito a un confronto stringa diretto col secret in env — più
+// robusto a differenze di whitespace/incoraggia rotazione chiave senza
+// rompere l'automazione, ed è il modo corretto per distinguere un token
+// service_role da un JWT di sessione utente reale.
+function ruoloJwt(jwt: string): string | null {
+  try {
+    const payload = jwt.split(".")[1];
+    const json = atob(payload.replace(/-/g, "+").replace(/_/g, "/"));
+    return JSON.parse(json)?.role ?? null;
+  } catch {
+    return null;
+  }
 }
 
 async function processConto(
@@ -317,9 +336,22 @@ Deno.serve(async (req: Request) => {
 
     const admin = createAdminClient();
     const jwt = authHeader.replace(/^Bearer\s+/i, "");
-    const { data: userData, error: userErr } = await admin.auth.getUser(jwt);
-    if (userErr || !userData?.user) return json(401, { error: "Token non valido" });
-    const userId = userData.user.id;
+
+    // Doppio binario di autenticazione: chiamata utente (JWT di sessione reale,
+    // comportamento originale — processa SOLO i conti di quell'utente) oppure
+    // chiamata automazione/cron con la service_role key stessa (stesso pattern
+    // di sync-prezzi-conti-amministrati: nessuna sessione utente disponibile in
+    // un cron) — riconosciuta dal claim "role" nel JWT, non da un confronto
+    // stringa: il service_role key valida comunque come JWT firmato (verify_jwt
+    // della function passa), ma admin.auth.getUser() non risolve un vero utente
+    // per quel token, quindi va intercettato prima.
+    const isServiceRole = ruoloJwt(jwt) === "service_role";
+    let userId: string | undefined;
+    if (!isServiceRole) {
+      const { data: userData, error: userErr } = await admin.auth.getUser(jwt);
+      if (userErr || !userData?.user) return json(401, { error: "Token non valido" });
+      userId = userData.user.id;
+    }
 
     const token = Deno.env.get("IBKR_FLEX_TOKEN");
     if (!token) return json(500, { error: "IBKR_FLEX_TOKEN non configurato" });
@@ -338,9 +370,9 @@ Deno.serve(async (req: Request) => {
     let query = admin
       .from("conti")
       .select("id, user_id, ibkr_account_id, flex_query_id")
-      .eq("user_id", userId)
       .eq("broker", "IBKR")
       .eq("attivo", true);
+    if (userId) query = query.eq("user_id", userId); // service_role: tutti i conti IBKR attivi, non un singolo utente
     if (contoIdFiltro) {
       query = query.eq("id", contoIdFiltro);
     } else {

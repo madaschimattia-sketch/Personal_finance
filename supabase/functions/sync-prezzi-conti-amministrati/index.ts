@@ -7,17 +7,24 @@
 // a differenza di IBKR che ha ibkr-flex-pull).
 //
 // Per ogni conto: aggrega le posizioni nette aperte da `movimenti` (stessa logica
-// di web/src/lib/contoGenerico.js), risolve il ticker Yahoo per ISIN (cache in
+// di web/src/lib/contoGenerico.js), poi per ogni ISIN prova due fonti prezzo in
+// ordine: (1) Yahoo Finance — risolve il ticker per ISIN (cache in
 // tax_instruments.yahoo_ticker, stesso pattern di calcola-rendimenti-storici),
-// legge l'ultimo prezzo di chiusura + valuta, converte in EUR col cambio Frankfurter
-// (dati ECB) del giorno se la valuta non è EUR, scrive una riga in
+// legge l'ultimo prezzo di chiusura + valuta, converte in EUR col cambio
+// Frankfurter (dati ECB) del giorno se non EUR; (2) se Yahoo non risolve l'ISIN
+// (tipico per bond MOT/EuroTLX, non tutti quotati lì), fallback su
+// tax_instruments.borsaitaliana_url — URL scheda borsaitaliana.it confermato
+// esplicitamente dall'utente per quello strumento (mai cercato/indovinato in
+// automatico: un match sbagliato scriverebbe il prezzo di un altro strumento),
+// prezzo letto dall'HTML statico della pagina (classe -formatPrice), assunto in
+// EUR (le pagine MOT/EuroTLX quotano sempre in EUR). Scrive una riga in
 // posizioni_aperte_ibkr con report_date = oggi. conid non esiste per questi conti
 // (nessun feed IBKR): si usa l'ISIN come conid sintetico, stabile e coerente col
 // resto del frontend che per questi conti legge già solo per ISIN.
 //
-// Mai un prezzo fabbricato: se la risoluzione del ticker, il fetch del prezzo o
-// il cambio falliscono, la posizione resta senza aggiornamento per oggi (righe
-// precedenti non toccate) — meglio un valore assente/vecchio che uno inventato.
+// Mai un prezzo fabbricato: se nessuna fonte risolve il prezzo, o il cambio
+// fallisce, la posizione resta senza aggiornamento per oggi (righe precedenti
+// non toccate) — meglio un valore assente/vecchio che uno inventato.
 import { corsHeaders } from "../_shared/cors.ts";
 import { createAdminClient } from "../_shared/supabase-admin.ts";
 
@@ -64,6 +71,29 @@ async function prezzoCorrenteYahoo(ticker: string): Promise<{ prezzo: number; va
   return null;
 }
 
+// Fallback per ISIN che Yahoo non risolve. La pagina scheda borsaitaliana.it
+// espone il prezzo nell'HTML statico dentro uno <span class="...-formatPrice">
+// (verificato a mano sulla pagina FR0014001NN8) — nessun rendering JS
+// necessario. Se il markup cambia il regex smette di matchare e la funzione
+// ritorna null: skip silenzioso, mai un prezzo indovinato da un match parziale.
+//
+// Le pagine /obbligazioni/ quotano "a 100" (percentuale del nominale, es.
+// 101,49 = 101,49% del valore nominale) — convenzione standard di mercato per
+// i bond, diversa dalle pagine /fondi/ (NAV per quota, già in EUR per unità).
+// position che moltiplichiamo per il prezzo qui è sempre il nominale posseduto
+// (dai `movimenti`), quindi per un bond va diviso per 100 prima, altrimenti il
+// controvalore risulta ~100x troppo alto.
+async function prezzoCorrenteBorsaItaliana(url: string): Promise<{ prezzo: number } | null> {
+  const res = await fetch(url, { headers: YF_HEADERS });
+  if (!res.ok) return null;
+  const html = await res.text();
+  const match = html.match(/-formatPrice">\s*<strong>\s*([\d.,]+)\s*<\/strong>/);
+  if (!match) return null;
+  let prezzo = Number(match[1].replace(/\./g, "").replace(",", "."));
+  if (url.includes("/obbligazioni/")) prezzo /= 100;
+  return prezzo > 0 ? { prezzo } : null;
+}
+
 async function cambioEur(valuta: string): Promise<number | null> {
   if (valuta === "EUR") return 1;
   const url = `https://api.frankfurter.dev/v1/latest?base=${encodeURIComponent(valuta)}&symbols=EUR`;
@@ -86,10 +116,11 @@ Deno.serve(async (req: Request) => {
     if (contiErr) return json(500, { error: `Lettura conti fallita: ${contiErr.message}` });
     if (!conti || conti.length === 0) return json(200, { error: null, nota: "Nessun conto amministrato attivo.", dettaglio: {} });
 
-    const dettaglio: Record<string, { isin?: string; yahoo_ticker?: string; prezzo_eur?: number; skipped?: boolean; reason?: string }[]> = {};
+    type RigaLog = { isin?: string; yahoo_ticker?: string; fonte?: string; prezzo_eur?: number; skipped?: boolean; reason?: string };
+    const dettaglio: Record<string, RigaLog[]> = {};
 
     for (const conto of conti) {
-      const righeConto: { isin?: string; yahoo_ticker?: string; prezzo_eur?: number; skipped?: boolean; reason?: string }[] = [];
+      const righeConto: RigaLog[] = [];
 
       const { data: movimenti, error: movErr } = await admin.from("movimenti")
         .select("isin, quantita").eq("conto_id", conto.id).not("isin", "is", null);
@@ -104,7 +135,7 @@ Deno.serve(async (req: Request) => {
       if (isinAperti.length === 0) { dettaglio[conto.broker] = []; continue; }
 
       const { data: strumenti, error: strErr } = await admin.from("tax_instruments")
-        .select("id, isin, descrizione, yahoo_ticker, asset_category").in("isin", isinAperti);
+        .select("id, isin, descrizione, yahoo_ticker, asset_category, borsaitaliana_url").in("isin", isinAperti);
       if (strErr) { dettaglio[conto.broker] = [{ skipped: true, reason: `lettura tax_instruments fallita: ${strErr.message}` }]; continue; }
       const strumentoPerIsin = new Map((strumenti ?? []).map((s) => [s.isin as string, s]));
 
@@ -124,21 +155,35 @@ Deno.serve(async (req: Request) => {
         let assetCategory = (strumento.asset_category as string | null) ?? null;
         if (!yahooTicker) {
           const risolto = await risolviTickerYahoo(isin);
-          if (!risolto) { righeConto.push({ isin, skipped: true, reason: "ticker Yahoo non risolto da ISIN" }); await new Promise((r) => setTimeout(r, 300)); continue; }
-          yahooTicker = risolto.ticker;
-          const aggiornamento: Record<string, unknown> = { yahoo_ticker: yahooTicker };
-          if (!assetCategory) {
-            assetCategory = QUOTE_TYPE_TO_ASSET_CATEGORY[risolto.quoteType] ?? null;
-            if (assetCategory) aggiornamento.asset_category = assetCategory;
+          if (risolto) {
+            yahooTicker = risolto.ticker;
+            const aggiornamento: Record<string, unknown> = { yahoo_ticker: yahooTicker };
+            if (!assetCategory) {
+              assetCategory = QUOTE_TYPE_TO_ASSET_CATEGORY[risolto.quoteType] ?? null;
+              if (assetCategory) aggiornamento.asset_category = assetCategory;
+            }
+            await admin.from("tax_instruments").update(aggiornamento).eq("id", strumento.id);
           }
-          await admin.from("tax_instruments").update(aggiornamento).eq("id", strumento.id);
         }
 
-        const prezzoNativo = await prezzoCorrenteYahoo(yahooTicker);
-        if (!prezzoNativo) { righeConto.push({ isin, yahoo_ticker: yahooTicker, skipped: true, reason: "prezzo corrente non disponibile da Yahoo Finance" }); await new Promise((r) => setTimeout(r, 300)); continue; }
+        let prezzoNativo: { prezzo: number; valuta: string } | null = null;
+        let fonte = "";
+        if (yahooTicker) {
+          prezzoNativo = await prezzoCorrenteYahoo(yahooTicker);
+          if (prezzoNativo) fonte = `yahoo:${yahooTicker}`;
+        }
+        if (!prezzoNativo && strumento.borsaitaliana_url) {
+          const bi = await prezzoCorrenteBorsaItaliana(strumento.borsaitaliana_url as string);
+          if (bi) { prezzoNativo = { prezzo: bi.prezzo, valuta: "EUR" }; fonte = "borsaitaliana"; }
+        }
+        if (!prezzoNativo) {
+          righeConto.push({ isin, yahoo_ticker: yahooTicker ?? undefined, skipped: true, reason: yahooTicker ? "prezzo non disponibile da Yahoo (e nessun fallback Borsa Italiana configurato o riuscito)" : "ticker Yahoo non risolto e nessun fallback Borsa Italiana configurato o riuscito" });
+          await new Promise((r) => setTimeout(r, 300));
+          continue;
+        }
 
         const fx = await cambioEur(prezzoNativo.valuta);
-        if (fx == null) { righeConto.push({ isin, yahoo_ticker: yahooTicker, skipped: true, reason: `cambio ${prezzoNativo.valuta}->EUR non disponibile` }); await new Promise((r) => setTimeout(r, 300)); continue; }
+        if (fx == null) { righeConto.push({ isin, yahoo_ticker: yahooTicker ?? undefined, skipped: true, reason: `cambio ${prezzoNativo.valuta}->EUR non disponibile` }); await new Promise((r) => setTimeout(r, 300)); continue; }
 
         const quantita = nettoPerIsin.get(isin)!;
         const prezzoEur = prezzoNativo.prezzo * fx;
@@ -148,7 +193,7 @@ Deno.serve(async (req: Request) => {
           conto_id: conto.id,
           conid: isin, // nessun conid reale per un conto non-IBKR: ISIN come identificativo sintetico stabile
           isin,
-          symbol: strumento.descrizione ?? yahooTicker,
+          symbol: strumento.descrizione ?? yahooTicker ?? isin,
           asset_category: assetCategory,
           report_date: oggi,
           position: quantita,
@@ -157,7 +202,7 @@ Deno.serve(async (req: Request) => {
           valuta: prezzoNativo.valuta,
           fx_rate: fx,
         });
-        righeConto.push({ isin, yahoo_ticker: yahooTicker, prezzo_eur: Math.round(prezzoEur * 100) / 100 });
+        righeConto.push({ isin, yahoo_ticker: yahooTicker ?? undefined, fonte, prezzo_eur: Math.round(prezzoEur * 100) / 100 });
         await new Promise((r) => setTimeout(r, 300));
       }
 
