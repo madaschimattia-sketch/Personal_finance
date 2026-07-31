@@ -243,7 +243,7 @@ export default function FondiPensione() {
         let posizioni = [];
         if (idFondi.length > 0) {
           const [{ data: v }, { data: p }] = await Promise.all([
-            supabase.from("fondo_pensione_versamenti").select("fondo_id, anno_competenza, importo_eur, tipo_versamento, deducibile").in("fondo_id", idFondi),
+            supabase.from("fondo_pensione_versamenti").select("fondo_id, anno_competenza, importo_eur, tipo_versamento").in("fondo_id", idFondi),
             supabase.from("fondo_pensione_posizione").select("fondo_id, data_valorizzazione, controvalore_eur, rendimento_periodo_pct").in("fondo_id", idFondi).order("data_valorizzazione", { ascending: false }),
           ]);
           versamenti = v ?? [];
@@ -365,15 +365,9 @@ export default function FondiPensione() {
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
           {fondi.map((f) => {
             const versamenti = versamentiPerFondo.get(f.id) ?? [];
-            const perAnno = new Map();
             const perAnnoTipo = new Map();
             const tipiPresenti = new Set();
             for (const v of versamenti) {
-              const cur = perAnno.get(v.anno_competenza) ?? { deducibile: 0, nonDeducibile: 0 };
-              if (v.deducibile) cur.deducibile += Number(v.importo_eur);
-              else cur.nonDeducibile += Number(v.importo_eur);
-              perAnno.set(v.anno_competenza, cur);
-
               tipiPresenti.add(v.tipo_versamento);
               const curTipo = perAnnoTipo.get(v.anno_competenza) ?? new Map();
               curTipo.set(v.tipo_versamento, (curTipo.get(v.tipo_versamento) ?? 0) + Number(v.importo_eur));
@@ -402,31 +396,9 @@ export default function FondiPensione() {
                   </Card>
                 </div>
                 {tipiOrdinati.length > 1 && (
-                  <Card className="mb-3">
+                  <Card>
                     <h4 className="mb-2 font-display text-xs font-bold uppercase tracking-wide text-muted">Composizione versamenti per anno</h4>
                     <GraficoContributiFondo perAnno={perAnnoTipo} tipiPresenti={tipiOrdinati} />
-                  </Card>
-                )}
-                {perAnno.size > 0 && (
-                  <Card className="overflow-x-auto p-0">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="border-b border-line text-left text-xs uppercase tracking-wide text-muted">
-                          <th className="px-5 py-3 font-semibold">Anno</th>
-                          <th className="px-5 py-3 font-semibold">Deducibile</th>
-                          <th className="px-5 py-3 font-semibold">Non deducibile</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {[...perAnno.entries()].sort((a, b) => b[0] - a[0]).map(([anno, importi]) => (
-                          <tr key={anno} className="border-b border-line last:border-0">
-                            <td className="px-5 py-2.5 font-bold">{anno}</td>
-                            <td className="px-5 py-2.5">{fmtEur(importi.deducibile)}</td>
-                            <td className="px-5 py-2.5 text-muted">{fmtEur(importi.nonDeducibile)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
                   </Card>
                 )}
               </div>

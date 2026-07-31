@@ -250,6 +250,7 @@ export default function Dashboard() {
             navSerie,
             posizioni,
             posizioniFondi,
+            nFondi: idFondi.length,
             posizioniBancaGenerali,
             posizioniWidiba,
             posizioniBgSaxo,
@@ -272,7 +273,7 @@ export default function Dashboard() {
   if (stato === "loading" || !intestatarioId) return <p className="text-sm text-muted">Caricamento...</p>;
   if (stato === "error" || !dati) return <p className="text-sm text-neg">Errore nel caricamento dei dati.</p>;
 
-  const { navSerie, posizioni, posizioniFondi, posizioniBancaGenerali, posizioniWidiba, posizioniBgSaxo, lotti, strumenti, rendimentiCategoria, eventiFiscali, budget } = dati;
+  const { navSerie, posizioni, posizioniFondi, nFondi, posizioniBancaGenerali, posizioniWidiba, posizioniBgSaxo, lotti, strumenti, rendimentiCategoria, eventiFiscali, budget } = dati;
   const ultima = navSerie[navSerie.length - 1];
   const prima = navSerie[0];
   const patrimonioIbkr = ultima ? Number(ultima.total_eur) : 0;
@@ -465,7 +466,20 @@ export default function Dashboard() {
         </Link>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Link to="/investimenti/fondi-pensione" className="block">
+          <Card className="transition-shadow hover:shadow-lg">
+            <h4 className="mb-2 text-sm font-bold">Fondo Pensione</h4>
+            {fondoPensioneTotale > 0 ? (
+              <>
+                <div className="font-display text-xl font-extrabold">{fmtEur(fondoPensioneTotale)}</div>
+                <p className="mt-1 text-xs text-muted">{nFondi} fondo/i · illiquido, fuori dal portafoglio</p>
+              </>
+            ) : (
+              <p className="text-sm text-muted">Nessun fondo registrato</p>
+            )}
+          </Card>
+        </Link>
         <Link to="/budget" className="block">
           <Card className="transition-shadow hover:shadow-lg">
             <div className="mb-2 flex items-center justify-between">
