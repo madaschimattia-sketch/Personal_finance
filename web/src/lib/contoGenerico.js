@@ -22,27 +22,31 @@ export async function quotaContoGenerico(broker, intestatarioId) {
 
 // Aggregazione posizioni per ISIN da `movimenti` (quantità netta, costo medio
 // ponderato sui soli acquisti) unita al valore attuale da
-// `posizioni_aperte_ibkr` (ultimo report_date per questo conto, se presente
-// — senza uno snapshot valoreAttuale resta null, mai stimato). Ritorna righe
-// nella stessa forma usate da Portafoglio.jsx per l'IBKR: {symbol,
-// assetClass, quantita, costo, valoreAttuale, plNonRealizzato, plPct}.
+// `posizioni_aperte_ibkr`. Ritorna righe nella stessa forma usate da
+// Portafoglio.jsx per l'IBKR: {symbol, assetClass, quantita, costo,
+// valoreAttuale, plNonRealizzato, plPct}.
 export async function caricaPosizioniContoGenerico(broker, intestatarioId) {
   const { quota, contoId } = await quotaContoGenerico(broker, intestatarioId);
   if (quota === 0 || !contoId) return [];
 
-  const [{ data: movimenti }, { data: ultimaPos }] = await Promise.all([
+  const [{ data: movimenti }, { data: posizioniStorico }] = await Promise.all([
     supabase.from("movimenti").select("isin, quantita, prezzo, commissioni, importo").eq("conto_id", contoId).order("data", { ascending: true }),
-    supabase.from("posizioni_aperte_ibkr").select("report_date").eq("conto_id", contoId).order("report_date", { ascending: false }).limit(1).maybeSingle(),
+    // TUTTE le righe, non solo l'ultimo report_date del conto: strumenti su
+    // Banca Generali/Widiba/BG Saxo hanno fonti diverse per prezzo (sync
+    // giornaliero Yahoo per la maggior parte, inserimento manuale settimanale
+    // per bond/fondi che Yahoo non ha) e non si aggiornano tutti lo stesso
+    // giorno. Prendere "l'ultimo report_date del conto" farebbe sparire il
+    // valore di uno strumento non riprezzato quel giorno preciso, anche se un
+    // prezzo recente esiste. Qui si tiene invece, per ISIN, la riga più
+    // recente in assoluto — "ultimo prezzo disponibile", mai un valore stimato.
+    supabase.from("posizioni_aperte_ibkr").select("isin, position, mark_price, position_value_eur, asset_category, report_date")
+      .eq("conto_id", contoId).order("report_date", { ascending: false }),
   ]);
 
-  let posizioniAttuali = [];
-  if (ultimaPos) {
-    const { data } = await supabase.from("posizioni_aperte_ibkr")
-      .select("isin, position, mark_price, position_value_eur, asset_category")
-      .eq("conto_id", contoId).eq("report_date", ultimaPos.report_date);
-    posizioniAttuali = data ?? [];
+  const posPerIsin = new Map();
+  for (const p of posizioniStorico ?? []) {
+    if (!posPerIsin.has(p.isin)) posPerIsin.set(p.isin, p); // ordinato desc: la prima occorrenza è la più recente
   }
-  const posPerIsin = new Map(posizioniAttuali.map((p) => [p.isin, p]));
 
   const isinUnici = [...new Set((movimenti ?? []).map((m) => m.isin))];
   const { data: strumenti } = isinUnici.length > 0
@@ -82,6 +86,8 @@ export async function caricaPosizioniContoGenerico(broker, intestatarioId) {
     risultato.push({
       symbol: strumento?.descrizione ?? isin,
       conto: broker,
+      contoId,
+      dataPrezzo: posizione?.report_date ?? null,
       assetClass: strumento?.asset_class ?? "Other",
       // assetCategory (STK/BOND/FUND/CMDTY/CRYPTO, tassonomia IBKR) e rendimento5y:
       // servono a stimare il rendimento atteso di queste posizioni in

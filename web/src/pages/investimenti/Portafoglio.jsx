@@ -118,6 +118,68 @@ function ChartSerie({ serie }) {
   );
 }
 
+// Riga di inserimento prezzo manuale per uno strumento che Yahoo Finance non
+// trova (bond/fondi non quotati lì — vedi sync-prezzi-conti-amministrati, che
+// li lascia senza prezzo invece di inventarne uno). Scrive direttamente in
+// posizioni_aperte_ibkr (stessa tabella/convenzione del sync automatico:
+// conid = isin sintetico, report_date = oggi) così il resto del frontend non
+// deve distinguere prezzo manuale da prezzo Yahoo. "Ultimo prezzo disponibile"
+// finché non viene aggiornato: nessuna scadenza, resta valido a tempo
+// indeterminato (responsabilità dell'utente aggiornarlo, indicativamente ogni
+// settimana).
+function RigaPrezzoManuale({ riga, onSalvato }) {
+  const [prezzo, setPrezzo] = useState("");
+  const [salvando, setSalvando] = useState(false);
+  const [errore, setErrore] = useState("");
+
+  async function salva() {
+    const p = Number(prezzo.replace(",", "."));
+    if (!p || p <= 0) { setErrore("Prezzo non valido"); return; }
+    setSalvando(true);
+    setErrore("");
+    const { data: sessione } = await supabase.auth.getSession();
+    const userId = sessione?.session?.user?.id;
+    if (!userId) { setErrore("Sessione non valida"); setSalvando(false); return; }
+
+    const { error } = await supabase.from("posizioni_aperte_ibkr").upsert({
+      user_id: userId,
+      conto_id: riga.contoId,
+      conid: riga.isin, // stesso identificativo sintetico usato dal sync automatico
+      isin: riga.isin,
+      symbol: riga.symbol,
+      report_date: new Date().toISOString().slice(0, 10),
+      position: riga.quantita,
+      mark_price: p,
+      position_value_eur: riga.quantita * p,
+      valuta: "EUR",
+      fx_rate: 1,
+    }, { onConflict: "conto_id,conid,report_date" });
+
+    setSalvando(false);
+    if (error) setErrore(error.message);
+    else { setPrezzo(""); onSalvato(riga, p); }
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-3 border-b border-line py-2.5 last:border-0">
+      <div className="min-w-[180px] flex-1">
+        <p className="text-sm font-bold">{riga.symbol}</p>
+        <p className="text-xs text-muted">{riga.conto} · {riga.isin} · {fmtQty(riga.quantita)} unità</p>
+      </div>
+      <input
+        type="text" inputMode="decimal" value={prezzo} onChange={(e) => setPrezzo(e.target.value)}
+        placeholder="Prezzo EUR" onKeyDown={(e) => e.key === "Enter" && salva()}
+        className="w-32 rounded-chip border border-line bg-surface px-3 py-1.5 text-sm outline-none focus:border-hero"
+      />
+      <button type="button" onClick={salva} disabled={salvando}
+        className="rounded-chip bg-hero px-3 py-1.5 text-xs font-bold text-white disabled:opacity-60">
+        {salvando ? "Salvo..." : "Salva"}
+      </button>
+      {errore && <span className="text-xs text-neg">{errore}</span>}
+    </div>
+  );
+}
+
 export default function Portafoglio() {
   const { intestatarioId, periodoGiorni } = useFilters();
   const [stato, setStato] = useState("loading");
@@ -269,6 +331,20 @@ export default function Portafoglio() {
     return () => { annullato = true; };
   }, [intestatarioId, periodoGiorni]);
 
+  // Strumenti senza prezzo aggiornabile in automatico (Yahoo non li trova —
+  // tipicamente bond/fondi non quotati lì): l'IBKR è escluso perché lì il
+  // prezzo arriva dall'export Flex, non da Yahoo/inserimento manuale.
+  const righeSenzaPrezzo = righe.filter((r) => r.conto !== "IBKR" && r.valoreAttuale === null);
+
+  function applicaPrezzoManuale(riga, prezzo) {
+    setRighe((prev) => prev.map((r) => {
+      if (r.conto !== riga.conto || r.isin !== riga.isin) return r;
+      const valoreAttuale = r.quantita * prezzo;
+      const plNonRealizzato = valoreAttuale - r.costo;
+      return { ...r, valoreAttuale, plNonRealizzato, plPct: r.costo > 0 ? (plNonRealizzato / r.costo) * 100 : null };
+    }));
+  }
+
   if (stato === "loading") return <p className="text-sm text-muted">Caricamento...</p>;
   if (stato === "error") return <p className="text-sm text-neg">Errore nel caricamento del portafoglio.</p>;
 
@@ -356,6 +432,18 @@ export default function Portafoglio() {
               })}
             </tbody>
           </table>
+        </Card>
+      )}
+
+      {righeSenzaPrezzo.length > 0 && (
+        <Card className="mb-6">
+          <h3 className="mb-1 font-display text-sm font-bold">Prezzi da aggiornare a mano</h3>
+          <p className="mb-3 text-xs text-muted">
+            Yahoo Finance non trova questi strumenti (bond/fondi non quotati lì) — il sync giornaliero li salta invece di stimare un prezzo. Inseriscilo qui (estratto conto, sito emittente...), indicativamente ogni settimana: resta valido finché non lo aggiorni di nuovo.
+          </p>
+          {righeSenzaPrezzo.map((r) => (
+            <RigaPrezzoManuale key={`${r.conto}-${r.isin}`} riga={r} onSalvato={applicaPrezzoManuale} />
+          ))}
         </Card>
       )}
 
