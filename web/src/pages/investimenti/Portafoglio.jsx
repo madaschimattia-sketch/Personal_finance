@@ -20,12 +20,14 @@ const ASSET_CLASS_ORDER = ["Equity", "Fixed Income", "Real Estate", "Commodities
 
 const COLONNE = [
   { chiave: "symbol", label: "Strumento", align: "left" },
+  { chiave: "conto", label: "Conto", align: "left" },
   { chiave: "quantita", label: "Quantità", align: "right" },
   { chiave: "costo", label: "Costo", align: "right" },
   { chiave: "valoreAttuale", label: "Valore attuale", align: "right" },
   { chiave: "plNonRealizzato", label: "P&L", align: "right" },
   { chiave: "plPct", label: "P&L %", align: "right" },
 ];
+const COLONNE_TESTO = new Set(["symbol", "conto"]);
 
 // I valori null (es. valoreAttuale senza snapshot) vanno sempre in fondo,
 // qualunque sia la direzione di ordinamento — altrimenti "asc" li mette
@@ -35,7 +37,7 @@ function confrontaColonna(a, b, chiave, dir) {
   if (va === null && vb === null) return 0;
   if (va === null) return 1;
   if (vb === null) return -1;
-  if (chiave === "symbol") return dir * String(va).localeCompare(String(vb));
+  if (COLONNE_TESTO.has(chiave)) return dir * String(va).localeCompare(String(vb));
   return dir * (Number(va) - Number(vb));
 }
 
@@ -123,8 +125,10 @@ export default function Portafoglio() {
   const [info, setInfo] = useState("");
   const [serie, setSerie] = useState([]);
   const [filtro, setFiltro] = useState("");
+  const [filtroConto, setFiltroConto] = useState("");
   const [ordinamento, setOrdinamento] = useState({ chiave: null, dir: 1 });
   const [gruppiCollassati, setGruppiCollassati] = useState(() => new Set());
+  const [aggiornamentiPrezzi, setAggiornamentiPrezzi] = useState([]);
 
   function alternaOrdinamento(chiave) {
     setOrdinamento((o) => (o.chiave === chiave ? { chiave, dir: -o.dir } : { chiave, dir: 1 }));
@@ -189,6 +193,7 @@ export default function Portafoglio() {
           const plNonRealizzato = valoreAttuale !== null ? valoreAttuale - agg.costo : null;
           return {
             symbol: strumento?.symbol ?? "?",
+            conto: "IBKR",
             assetClass: strumento?.asset_class ?? null,
             quantita: agg.quantita,
             costo: agg.costo,
@@ -213,7 +218,7 @@ export default function Portafoglio() {
         // valore totale e nella ripartizione per asset class (categoria Liquidity).
         if (cashEur > 0) {
           risultato.push({
-            symbol: "Liquidità", assetClass: "Liquidity", quantita: null,
+            symbol: "Liquidità", conto: "IBKR", assetClass: "Liquidity", quantita: null,
             costo: 0, valoreAttuale: cashEur, plNonRealizzato: null, plPct: null,
           });
         }
@@ -231,9 +236,23 @@ export default function Portafoglio() {
           serieNav = (nav ?? []).map((n) => ({ v: (Number(n.stock_eur) + Number(n.bonds_eur)) * quota, data: n.report_date }));
         }
 
+        // Tabella di verifica "ultimo aggiornamento prezzi": informativa su TUTTI i
+        // conti attivi, indipendentemente dall'intestatario/quota selezionato — serve
+        // a controllare che il cron sync-prezzi-conti-amministrati (e i pull IBKR)
+        // stiano davvero girando, non a mostrare valori di portafoglio.
+        const { data: tuttiConti } = await supabase.from("conti").select("id, broker").eq("attivo", true);
+        const { data: tutteLePosizioni } = await supabase.from("posizioni_aperte_ibkr").select("conto_id, report_date");
+        const ultimaDataPerConto = new Map();
+        for (const p of tutteLePosizioni ?? []) {
+          const attuale = ultimaDataPerConto.get(p.conto_id);
+          if (!attuale || p.report_date > attuale) ultimaDataPerConto.set(p.conto_id, p.report_date);
+        }
+        const aggiornamenti = (tuttiConti ?? []).map((c) => ({ conto: c.broker, ultimoAggiornamento: ultimaDataPerConto.get(c.id) ?? null }));
+
         if (!annullato) {
           setRighe(risultato);
           setSerie(serieNav);
+          setAggiornamentiPrezzi(aggiornamenti);
           if (quota === 0) {
             setInfo("Questo conto non ti appartiene (quota 0%): nessuna posizione da mostrare.");
           } else {
@@ -258,13 +277,14 @@ export default function Portafoglio() {
   const plTotale = totaleValore - totaleCosto;
   const plTotalePct = totaleCosto > 0 ? (plTotale / totaleCosto) * 100 : 0;
 
-  // Il filtro testuale e l'ordinamento per colonna agiscono solo sulle
+  // Il filtro testuale/conto e l'ordinamento per colonna agiscono solo sulle
   // tabelle per gruppo: i totali in alto restano quelli dell'intero
   // portafoglio, altrimenti filtrare "nvidia" farebbe sembrare che il resto
   // del patrimonio sia sparito.
-  const righeFiltrate = filtro.trim()
-    ? righe.filter((r) => r.symbol.toLowerCase().includes(filtro.trim().toLowerCase()))
-    : righe;
+  const contiDisponibili = [...new Set(righe.map((r) => r.conto))].sort();
+  const righeFiltrate = righe
+    .filter((r) => !filtro.trim() || r.symbol.toLowerCase().includes(filtro.trim().toLowerCase()))
+    .filter((r) => !filtroConto || r.conto === filtroConto);
 
   const gruppi = new Map();
   for (const r of righeFiltrate) {
@@ -310,13 +330,52 @@ export default function Portafoglio() {
         {serie.length > 1 ? <ChartSerie serie={serie} /> : <p className="text-sm text-muted">Storico insufficiente.</p>}
       </Card>
 
-      <input
-        type="text"
-        value={filtro}
-        onChange={(e) => setFiltro(e.target.value)}
-        placeholder="Filtra per nome strumento..."
-        className="mb-5 w-full rounded-chip border border-line bg-surface px-4 py-2.5 text-sm outline-none focus:border-hero sm:w-80"
-      />
+      {aggiornamentiPrezzi.length > 0 && (
+        <Card className="mb-6 overflow-x-auto p-0">
+          <h3 className="px-5 pt-4 font-display text-sm font-bold">Ultimo aggiornamento prezzi per conto</h3>
+          <p className="px-5 pb-3 text-xs text-muted">Verifica che il sync giornaliero (IBKR via Flex, gli altri via Yahoo Finance) sia effettivamente aggiornato — non i valori di portafoglio sopra.</p>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-line text-left text-xs uppercase tracking-wide text-muted">
+                <th className="px-5 py-2.5 font-semibold">Conto</th>
+                <th className="px-5 py-2.5 font-semibold">Ultimo aggiornamento</th>
+              </tr>
+            </thead>
+            <tbody>
+              {aggiornamentiPrezzi.map((a) => {
+                const giorniFa = a.ultimoAggiornamento ? Math.floor((Date.now() - new Date(a.ultimoAggiornamento).getTime()) / 86400000) : null;
+                const stantio = giorniFa !== null && giorniFa > 2;
+                return (
+                  <tr key={a.conto} className="border-b border-line last:border-0">
+                    <td className="px-5 py-2 font-bold">{a.conto}</td>
+                    <td className={`px-5 py-2 ${!a.ultimoAggiornamento ? "text-muted" : stantio ? "text-neg font-semibold" : ""}`}>
+                      {a.ultimoAggiornamento ? `${a.ultimoAggiornamento} (${giorniFa === 0 ? "oggi" : `${giorniFa} giorno/i fa`})` : "mai"}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </Card>
+      )}
+
+      <div className="mb-5 flex flex-col gap-3 sm:flex-row">
+        <input
+          type="text"
+          value={filtro}
+          onChange={(e) => setFiltro(e.target.value)}
+          placeholder="Filtra per nome strumento..."
+          className="w-full rounded-chip border border-line bg-surface px-4 py-2.5 text-sm outline-none focus:border-hero sm:w-80"
+        />
+        <select
+          value={filtroConto}
+          onChange={(e) => setFiltroConto(e.target.value)}
+          className="w-full rounded-chip border border-line bg-surface px-4 py-2.5 text-sm outline-none focus:border-hero sm:w-52"
+        >
+          <option value="">Tutti i conti</option>
+          {contiDisponibili.map((c) => <option key={c} value={c}>{c}</option>)}
+        </select>
+      </div>
 
       {ordineGruppi.length === 0 && (
         <p className="text-sm text-muted">Nessuno strumento corrisponde al filtro.</p>
@@ -343,7 +402,7 @@ export default function Portafoglio() {
             </button>
             {!collassato && (
             <Card className="overflow-x-auto p-0">
-              <table className="w-full min-w-[640px] text-sm">
+              <table className="w-full min-w-[720px] text-sm">
                 <thead>
                   <tr className="border-b border-line text-left text-xs uppercase tracking-wide text-muted">
                     {COLONNE.map((col) => (
@@ -358,8 +417,9 @@ export default function Portafoglio() {
                 </thead>
                 <tbody>
                   {righeGruppo.map((r) => (
-                    <tr key={r.symbol} className="border-b border-line last:border-0">
+                    <tr key={`${r.conto}-${r.symbol}`} className="border-b border-line last:border-0">
                       <td className="px-5 py-2.5 font-bold">{r.symbol}</td>
+                      <td className="px-5 py-2.5 text-muted">{r.conto}</td>
                       <td className="px-5 py-2.5 text-right">{r.quantita !== null ? fmtQty(r.quantita) : "-"}</td>
                       <td className="px-5 py-2.5 text-right">{fmtEur(r.costo)}</td>
                       <td className="px-5 py-2.5 text-right">{r.valoreAttuale !== null ? fmtEur(r.valoreAttuale) : "-"}</td>
@@ -374,7 +434,7 @@ export default function Portafoglio() {
                 </tbody>
                 <tfoot>
                   <tr className="border-t-2 border-line font-bold">
-                    <td className="px-5 py-3" colSpan={2}>Subtotale</td>
+                    <td className="px-5 py-3" colSpan={3}>Subtotale</td>
                     <td className="px-5 py-3 text-right">{fmtEur(costoGruppo)}</td>
                     <td className="px-5 py-3 text-right">{fmtEur(valoreGruppo)}</td>
                     <td className={`px-5 py-3 text-right ${plGruppo >= 0 ? "text-pos" : "text-neg"}`} colSpan={2}>{fmtEur(plGruppo)}</td>

@@ -81,6 +81,7 @@ export async function caricaPosizioniContoGenerico(broker, intestatarioId) {
     const strumento = strumentoPerIsin.get(isin);
     risultato.push({
       symbol: strumento?.descrizione ?? isin,
+      conto: broker,
       assetClass: strumento?.asset_class ?? "Other",
       // assetCategory (STK/BOND/FUND/CMDTY/CRYPTO, tassonomia IBKR) e rendimento5y:
       // servono a stimare il rendimento atteso di queste posizioni in
