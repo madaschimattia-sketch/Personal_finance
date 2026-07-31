@@ -4,6 +4,9 @@ import { fmtEur } from "../lib/format.js";
 import Card from "../components/Card.jsx";
 import { useFilters } from "../context/FiltersContext.jsx";
 import { quotaContoIbkr } from "../lib/conto.js";
+import { caricaPosizioniBancaGenerali } from "../lib/bancaGenerali.js";
+import { caricaPosizioniWidiba } from "../lib/widiba.js";
+import { caricaPosizioniBgSaxo } from "../lib/bgSaxo.js";
 
 const ANNI_MAX = 40;
 const CATEGORIA_IBKR_TO_CONFIG = { STK: "stock", BOND: "bonds", FUND: "funds", CMDTY: "commodities", CRYPTO: "crypto" };
@@ -58,17 +61,28 @@ export default function Proiezioni() {
   const [ricalcolando, setRicalcolando] = useState(false);
 
   const caricaDefaultPortafoglio = useCallback(async (intestatarioId) => {
-    const quota = await quotaContoIbkr(intestatarioId);
-    const [{ data: nav }, { data: rendimentiCategoria }] = await Promise.all([
+    const [quota, { data: nav }, { data: rendimentiCategoria }, posizioniBancaGenerali, posizioniWidiba, posizioniBgSaxo] = await Promise.all([
+      quotaContoIbkr(intestatarioId),
       supabase.from("conto_nav_giornaliero").select("report_date, cash_eur, total_eur").order("report_date", { ascending: false }).limit(1).maybeSingle(),
       supabase.from("config_rendimenti_attesi").select("categoria, rendimento_atteso_pct"),
+      caricaPosizioniBancaGenerali(intestatarioId),
+      caricaPosizioniWidiba(intestatarioId),
+      caricaPosizioniBgSaxo(intestatarioId),
     ]);
+    const rendimentoPerCategoria = new Map((rendimentiCategoria ?? []).map((r) => [r.categoria, Number(r.rendimento_atteso_pct)]));
 
-    let cagrDefault = 5;
-    let valore = 0;
+    // Valore/rendimento IBKR (cointestato, scalato alla quota). Prima era l'unico
+    // contributo al valore iniziale/CAGR di default: per chi ha anche Banca
+    // Generali/Widiba/BG Saxo (regime amministrato, quota 100%/0%, vedi
+    // contoGenerico.js) la proiezione partiva da un valore sistematicamente più
+    // basso del vero patrimonio investito mostrato in Dashboard.
+    let valoreIbkr = 0;
+    let sommaPesata = 0;
+    let nReale = 0, nFallback = 0;
+    let reportDateIbkr = null;
     if (nav && Number(nav.total_eur) > 0) {
-      valore = Number(nav.total_eur) * quota;
-      const rendimentoPerCategoria = new Map((rendimentiCategoria ?? []).map((r) => [r.categoria, Number(r.rendimento_atteso_pct)]));
+      valoreIbkr = Number(nav.total_eur) * quota;
+      reportDateIbkr = nav.report_date;
 
       const { data: dataUltima } = await supabase.from("posizioni_aperte_ibkr").select("report_date").order("report_date", { ascending: false }).limit(1).maybeSingle();
       let posizioni = [];
@@ -85,16 +99,37 @@ export default function Proiezioni() {
       // Nota: la quota si applica ai valori assoluti (valore, sommaPesata), non al
       // CAGR pesato in sé — è un rapporto tra grandezze scalate dello stesso fattore,
       // quindi resta invariato. Scalata comunque per coerenza col resto del calcolo.
-      let sommaPesata = Number(nav.cash_eur ?? 0) * quota * (rendimentoPerCategoria.get("cash") ?? 0);
-      let nReale = 0, nFallback = 0;
+      sommaPesata += Number(nav.cash_eur ?? 0) * quota * (rendimentoPerCategoria.get("cash") ?? 0);
       for (const p of posizioni) {
         const val = Number(p.position_value_eur ?? 0) * quota;
         const reale = rendimentoPerConid.get(p.conid);
         if (reale != null) { sommaPesata += val * reale; nReale++; }
         else { sommaPesata += val * (rendimentoPerCategoria.get(CATEGORIA_IBKR_TO_CONFIG[p.asset_category]) ?? 0); nFallback++; }
       }
+    }
+
+    // Banca Generali/Widiba/BG Saxo: stesso pesaggio (CAGR storico reale se noto,
+    // altrimenti ipotesi generica per categoria mappata da asset_category IBKR).
+    let valoreAltriConti = 0;
+    for (const r of [...posizioniBancaGenerali, ...posizioniWidiba, ...posizioniBgSaxo]) {
+      const val = r.valoreAttuale ?? 0;
+      valoreAltriConti += val;
+      if (r.rendimento5y != null) { sommaPesata += val * r.rendimento5y; nReale++; }
+      else {
+        const categoria = CATEGORIA_IBKR_TO_CONFIG[r.assetCategory];
+        sommaPesata += val * (categoria ? (rendimentoPerCategoria.get(categoria) ?? 0) : 0);
+        nFallback++;
+      }
+    }
+
+    const valore = valoreIbkr + valoreAltriConti;
+    let cagrDefault = 5;
+    if (valore > 0) {
       cagrDefault = sommaPesata / valore;
-      setInfo(`Valore iniziale dall'ultimo snapshot patrimonio (${nav.report_date}). Rendimento atteso: media pesata per valore di posizione, ${nReale} strumento/i con CAGR storico reale (~5 anni) e ${nFallback} su ipotesi generica per categoria — modificabile liberamente qui sotto.`);
+      const fonteValore = reportDateIbkr ? `IBKR al ${reportDateIbkr}` : "";
+      const fonteAltri = valoreAltriConti > 0 ? "Banca Generali/Widiba/BG Saxo" : "";
+      const fonte = [fonteValore, fonteAltri].filter(Boolean).join(" + ") || "conti disponibili";
+      setInfo(`Valore iniziale dall'ultimo snapshot patrimonio investito (${fonte}). Rendimento atteso: media pesata per valore di posizione, ${nReale} strumento/i con CAGR storico reale (~5 anni) e ${nFallback} su ipotesi generica per categoria — modificabile liberamente qui sotto.`);
     } else {
       setInfo("Nessuno snapshot patrimonio disponibile: valore iniziale e rendimento di default a 0, inseriscili a mano.");
     }

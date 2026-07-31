@@ -38,7 +38,7 @@ export async function caricaPosizioniContoGenerico(broker, intestatarioId) {
   let posizioniAttuali = [];
   if (ultimaPos) {
     const { data } = await supabase.from("posizioni_aperte_ibkr")
-      .select("isin, position, mark_price, position_value_eur")
+      .select("isin, position, mark_price, position_value_eur, asset_category")
       .eq("conto_id", contoId).eq("report_date", ultimaPos.report_date);
     posizioniAttuali = data ?? [];
   }
@@ -46,7 +46,7 @@ export async function caricaPosizioniContoGenerico(broker, intestatarioId) {
 
   const isinUnici = [...new Set((movimenti ?? []).map((m) => m.isin))];
   const { data: strumenti } = isinUnici.length > 0
-    ? await supabase.from("tax_instruments").select("isin, descrizione, asset_class").in("isin", isinUnici)
+    ? await supabase.from("tax_instruments").select("isin, descrizione, asset_class, rendimento_5y_pct").in("isin", isinUnici)
     : { data: [] };
   const strumentoPerIsin = new Map((strumenti ?? []).map((s) => [s.isin, s]));
 
@@ -82,6 +82,13 @@ export async function caricaPosizioniContoGenerico(broker, intestatarioId) {
     risultato.push({
       symbol: strumento?.descrizione ?? isin,
       assetClass: strumento?.asset_class ?? "Other",
+      // assetCategory (STK/BOND/FUND/CMDTY/CRYPTO, tassonomia IBKR) e rendimento5y:
+      // servono a stimare il rendimento atteso di queste posizioni in
+      // Dashboard/Proiezioni, stesso pattern già usato per l'IBKR — senza questi
+      // campi le proiezioni ignoravano per intero i conti Banca Generali/Widiba/
+      // BG Saxo (partivano da patrimonioIbkr, non dal patrimonio investito totale).
+      assetCategory: posizione?.asset_category ?? null,
+      rendimento5y: strumento?.rendimento_5y_pct != null ? Number(strumento.rendimento_5y_pct) : null,
       isin,
       quantita,
       costo,

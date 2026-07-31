@@ -12,6 +12,10 @@ import { caricaPosizioniBgSaxo } from "../lib/bgSaxo.js";
 
 const RENDIMENTO_CATEGORIE = ["cash", "stock", "bonds", "funds", "commodities", "crypto"];
 const GIUDIZIO_LABEL = { sostenibile: "Sostenibile", attenzione: "Attenzione", rischio: "A rischio" };
+// Stessa mappa asset_category (IBKR) -> categoria rendimento di Proiezioni.jsx,
+// usata qui per pesare anche le posizioni Banca Generali/Widiba/BG Saxo nel
+// CAGR di proiezione (altrimenti il calcolo pesava solo l'IBKR).
+const CATEGORIA_IBKR_TO_CONFIG = { STK: "stock", BOND: "bonds", FUND: "funds", CMDTY: "commodities", CRYPTO: "crypto" };
 
 // Stessa tassonomia normalizzata di Portafoglio.jsx (vedi migration 0031):
 // l'allocazione qui va allineata a quella, non ricavata dai bucket grezzi IBKR
@@ -332,17 +336,36 @@ export default function Dashboard() {
   // e ora anche il conto Banca Generali.
   const portafoglioValore = totalePosizioni;
 
+  // Patrimonio investito ai fini della proiezione: IBKR + Banca Generali +
+  // Widiba + BG Saxo (fondo pensione escluso di proposito, illiquido/vincolato,
+  // stessa scelta già fatta per l'allocazione sopra). Prima il CAGR e il valore
+  // di partenza della proiezione consideravano solo patrimonioIbkr: per Mattia,
+  // che ha anche Banca Generali/Widiba/BG Saxo, la proiezione partiva da un
+  // valore sistematicamente più basso del vero patrimonio investito mostrato
+  // in "Portafoglio" qui sopra.
+  const patrimonioInvestito = patrimonioIbkr + valoreBancaGeneraliTotale + valoreWidibaTotale + valoreBgSaxoTotale;
   const rendimentoPerCategoria = new Map(rendimentiCategoria.map((r) => [r.categoria, Number(r.rendimento_atteso_pct)]));
   let cagrBlend = 5;
-  if (ultima && patrimonioIbkr > 0) {
+  if (patrimonioInvestito > 0) {
     let somma = 0;
-    for (const cat of RENDIMENTO_CATEGORIE) {
-      somma += Number(ultima[`${cat}_eur`] ?? 0) * (rendimentoPerCategoria.get(cat) ?? 0);
+    if (ultima) {
+      for (const cat of RENDIMENTO_CATEGORIE) {
+        somma += Number(ultima[`${cat}_eur`] ?? 0) * (rendimentoPerCategoria.get(cat) ?? 0);
+      }
     }
-    cagrBlend = somma / patrimonioIbkr;
+    for (const r of [...posizioniBancaGenerali, ...posizioniWidiba, ...posizioniBgSaxo]) {
+      const val = r.valoreAttuale ?? 0;
+      if (r.rendimento5y != null) {
+        somma += val * r.rendimento5y;
+      } else {
+        const categoria = CATEGORIA_IBKR_TO_CONFIG[r.assetCategory];
+        somma += val * (categoria ? (rendimentoPerCategoria.get(categoria) ?? 0) : 0);
+      }
+    }
+    cagrBlend = somma / patrimonioInvestito;
   }
   const margineMensile = budget?.margineMensile ?? 0;
-  const proiezione10y = calcolaSerieCrescita(patrimonioIbkr, cagrBlend, Math.max(0, margineMensile), 10);
+  const proiezione10y = calcolaSerieCrescita(patrimonioInvestito, cagrBlend, Math.max(0, margineMensile), 10);
 
   const impostePerAnno = new Map();
   for (const e of eventiFiscali) impostePerAnno.set(e.anno, (impostePerAnno.get(e.anno) ?? 0) + Number(e.imposta_eur));
