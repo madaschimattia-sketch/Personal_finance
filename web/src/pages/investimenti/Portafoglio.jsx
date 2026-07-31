@@ -118,15 +118,17 @@ function ChartSerie({ serie }) {
   );
 }
 
+const SOGLIA_GIORNI_PREZZO_MANUALE = 7; // aggiornamento atteso settimanale, non giornaliero come il sync Yahoo
+
 // Riga di inserimento prezzo manuale per uno strumento che Yahoo Finance non
 // trova (bond/fondi non quotati lì — vedi sync-prezzi-conti-amministrati, che
 // li lascia senza prezzo invece di inventarne uno). Scrive direttamente in
 // posizioni_aperte_ibkr (stessa tabella/convenzione del sync automatico:
 // conid = isin sintetico, report_date = oggi) così il resto del frontend non
-// deve distinguere prezzo manuale da prezzo Yahoo. "Ultimo prezzo disponibile"
-// finché non viene aggiornato: nessuna scadenza, resta valido a tempo
-// indeterminato (responsabilità dell'utente aggiornarlo, indicativamente ogni
-// settimana).
+// deve distinguere prezzo manuale da prezzo Yahoo. Resta in questa sezione
+// anche dopo il primo inserimento (yahooTicker resta null per sempre per
+// questi ISIN) — altrimenti sparirebbe dalla vista e non ci sarebbe modo di
+// segnalare quando il prezzo inserito è vecchio.
 function RigaPrezzoManuale({ riga, onSalvato }) {
   const [prezzo, setPrezzo] = useState("");
   const [salvando, setSalvando] = useState(false);
@@ -140,6 +142,7 @@ function RigaPrezzoManuale({ riga, onSalvato }) {
     const { data: sessione } = await supabase.auth.getSession();
     const userId = sessione?.session?.user?.id;
     if (!userId) { setErrore("Sessione non valida"); setSalvando(false); return; }
+    const oggi = new Date().toISOString().slice(0, 10);
 
     const { error } = await supabase.from("posizioni_aperte_ibkr").upsert({
       user_id: userId,
@@ -147,7 +150,7 @@ function RigaPrezzoManuale({ riga, onSalvato }) {
       conid: riga.isin, // stesso identificativo sintetico usato dal sync automatico
       isin: riga.isin,
       symbol: riga.symbol,
-      report_date: new Date().toISOString().slice(0, 10),
+      report_date: oggi,
       position: riga.quantita,
       mark_price: p,
       position_value_eur: riga.quantita * p,
@@ -157,14 +160,22 @@ function RigaPrezzoManuale({ riga, onSalvato }) {
 
     setSalvando(false);
     if (error) setErrore(error.message);
-    else { setPrezzo(""); onSalvato(riga, p); }
+    else { setPrezzo(""); onSalvato(riga, p, oggi); }
   }
+
+  const giorniFa = riga.dataPrezzo ? Math.floor((Date.now() - new Date(riga.dataPrezzo).getTime()) / 86400000) : null;
+  const scaduto = giorniFa === null || giorniFa > SOGLIA_GIORNI_PREZZO_MANUALE;
 
   return (
     <div className="flex flex-wrap items-center gap-3 border-b border-line py-2.5 last:border-0">
       <div className="min-w-[180px] flex-1">
         <p className="text-sm font-bold">{riga.symbol}</p>
         <p className="text-xs text-muted">{riga.conto} · {riga.isin} · {fmtQty(riga.quantita)} unità</p>
+        <p className={`text-xs ${scaduto ? "font-semibold text-neg" : "text-muted"}`}>
+          {riga.valoreAttuale !== null
+            ? `Ultimo prezzo: ${fmtEur(riga.valoreAttuale / riga.quantita)} al ${riga.dataPrezzo} (${giorniFa === 0 ? "oggi" : `${giorniFa} giorno/i fa`})`
+            : "Nessun prezzo inserito ancora"}
+        </p>
       </div>
       <input
         type="text" inputMode="decimal" value={prezzo} onChange={(e) => setPrezzo(e.target.value)}
@@ -331,17 +342,19 @@ export default function Portafoglio() {
     return () => { annullato = true; };
   }, [intestatarioId, periodoGiorni]);
 
-  // Strumenti senza prezzo aggiornabile in automatico (Yahoo non li trova —
-  // tipicamente bond/fondi non quotati lì): l'IBKR è escluso perché lì il
+  // Strumenti a prezzo manuale per scelta (Yahoo non li ha mai risolti —
+  // yahooTicker resta null anche dopo un prezzo inserito, vedi contoGenerico.js):
+  // sezione persistente, non solo "finché non c'è un prezzo", altrimenti non
+  // ci sarebbe modo di segnalare un prezzo vecchio. IBKR escluso: lì il
   // prezzo arriva dall'export Flex, non da Yahoo/inserimento manuale.
-  const righeSenzaPrezzo = righe.filter((r) => r.conto !== "IBKR" && r.valoreAttuale === null);
+  const righeManuali = righe.filter((r) => r.conto !== "IBKR" && !r.yahooTicker);
 
-  function applicaPrezzoManuale(riga, prezzo) {
+  function applicaPrezzoManuale(riga, prezzo, dataPrezzo) {
     setRighe((prev) => prev.map((r) => {
       if (r.conto !== riga.conto || r.isin !== riga.isin) return r;
       const valoreAttuale = r.quantita * prezzo;
       const plNonRealizzato = valoreAttuale - r.costo;
-      return { ...r, valoreAttuale, plNonRealizzato, plPct: r.costo > 0 ? (plNonRealizzato / r.costo) * 100 : null };
+      return { ...r, valoreAttuale, plNonRealizzato, dataPrezzo, plPct: r.costo > 0 ? (plNonRealizzato / r.costo) * 100 : null };
     }));
   }
 
@@ -435,13 +448,13 @@ export default function Portafoglio() {
         </Card>
       )}
 
-      {righeSenzaPrezzo.length > 0 && (
+      {righeManuali.length > 0 && (
         <Card className="mb-6">
           <h3 className="mb-1 font-display text-sm font-bold">Prezzi da aggiornare a mano</h3>
           <p className="mb-3 text-xs text-muted">
-            Yahoo Finance non trova questi strumenti (bond/fondi non quotati lì) — il sync giornaliero li salta invece di stimare un prezzo. Inseriscilo qui (estratto conto, sito emittente...), indicativamente ogni settimana: resta valido finché non lo aggiorni di nuovo.
+            Yahoo Finance non trova questi strumenti (bond/fondi non quotati lì) — il sync giornaliero li salta invece di stimare un prezzo. Aggiornamento atteso settimanale: segnalato in rosso solo oltre {SOGLIA_GIORNI_PREZZO_MANUALE} giorni.
           </p>
-          {righeSenzaPrezzo.map((r) => (
+          {righeManuali.map((r) => (
             <RigaPrezzoManuale key={`${r.conto}-${r.isin}`} riga={r} onSalvato={applicaPrezzoManuale} />
           ))}
         </Card>

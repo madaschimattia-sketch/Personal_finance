@@ -50,7 +50,7 @@ export async function caricaPosizioniContoGenerico(broker, intestatarioId) {
 
   const isinUnici = [...new Set((movimenti ?? []).map((m) => m.isin))];
   const { data: strumenti } = isinUnici.length > 0
-    ? await supabase.from("tax_instruments").select("isin, descrizione, asset_class, rendimento_5y_pct").in("isin", isinUnici)
+    ? await supabase.from("tax_instruments").select("isin, descrizione, asset_class, rendimento_5y_pct, yahoo_ticker").in("isin", isinUnici)
     : { data: [] };
   const strumentoPerIsin = new Map((strumenti ?? []).map((s) => [s.isin, s]));
 
@@ -88,6 +88,14 @@ export async function caricaPosizioniContoGenerico(broker, intestatarioId) {
       conto: broker,
       contoId,
       dataPrezzo: posizione?.report_date ?? null,
+      // null = Yahoo non l'ha mai risolto (sync-prezzi-conti-amministrati non
+      // scrive yahoo_ticker se la ricerca fallisce): serve a distinguere uno
+      // strumento "a prezzo manuale per scelta" da uno gestito da Yahoo, anche
+      // dopo che un prezzo è già stato inserito (altrimenti la sezione di
+      // inserimento manuale in Portafoglio.jsx lo perderebbe di vista al primo
+      // salvataggio, e la settimana dopo non ci sarebbe più modo di segnalarlo
+      // come scaduto).
+      yahooTicker: strumento?.yahoo_ticker ?? null,
       assetClass: strumento?.asset_class ?? "Other",
       // assetCategory (STK/BOND/FUND/CMDTY/CRYPTO, tassonomia IBKR) e rendimento5y:
       // servono a stimare il rendimento atteso di queste posizioni in
