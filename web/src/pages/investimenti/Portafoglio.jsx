@@ -342,12 +342,12 @@ export default function Portafoglio() {
     return () => { annullato = true; };
   }, [intestatarioId, periodoGiorni]);
 
-  // Strumenti a prezzo manuale per scelta (Yahoo non li ha mai risolti —
-  // yahooTicker resta null anche dopo un prezzo inserito, vedi contoGenerico.js):
-  // sezione persistente, non solo "finché non c'è un prezzo", altrimenti non
-  // ci sarebbe modo di segnalare un prezzo vecchio. IBKR escluso: lì il
-  // prezzo arriva dall'export Flex, non da Yahoo/inserimento manuale.
-  const righeManuali = righe.filter((r) => r.conto !== "IBKR" && !r.yahooTicker);
+  // Strumenti davvero senza fonte automatica: né Yahoo né il fallback Borsa
+  // Italiana (borsaitalianaUrl, vedi contoGenerico.js) li coprono. Sezione
+  // persistente, non solo "finché non c'è un prezzo", altrimenti non ci
+  // sarebbe modo di segnalare un prezzo vecchio. IBKR escluso: lì il prezzo
+  // arriva dall'export Flex, non da Yahoo/Borsa Italiana/inserimento manuale.
+  const righeManuali = righe.filter((r) => r.conto !== "IBKR" && !r.yahooTicker && !r.borsaitalianaUrl);
 
   function applicaPrezzoManuale(riga, prezzo, dataPrezzo) {
     setRighe((prev) => prev.map((r) => {
@@ -452,7 +452,7 @@ export default function Portafoglio() {
         <Card className="mb-6">
           <h3 className="mb-1 font-display text-sm font-bold">Prezzi da aggiornare a mano</h3>
           <p className="mb-3 text-xs text-muted">
-            Yahoo Finance non trova questi strumenti (bond/fondi non quotati lì) — il sync giornaliero li salta invece di stimare un prezzo. Aggiornamento atteso settimanale: segnalato in rosso solo oltre {SOGLIA_GIORNI_PREZZO_MANUALE} giorni.
+            Né Yahoo Finance né il fallback Borsa Italiana coprono questi strumenti — il sync giornaliero li salta invece di stimare un prezzo. Aggiornamento atteso settimanale: segnalato in rosso solo oltre {SOGLIA_GIORNI_PREZZO_MANUALE} giorni.
           </p>
           {righeManuali.map((r) => (
             <RigaPrezzoManuale key={`${r.conto}-${r.isin}`} riga={r} onSalvato={applicaPrezzoManuale} />
