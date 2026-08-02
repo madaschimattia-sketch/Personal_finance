@@ -30,20 +30,20 @@ function fmtEurCompatto(v) {
   return v >= 1000 ? `${(v / 1000).toFixed(1)}k€` : fmtEur(v);
 }
 
-// Stacked bar chart per anno: ogni barra è un anno, i segmenti sono i singoli
-// fondi (ultimo controvalore noto entro quell'anno, anno_effettivo — vedi sopra)
-// — mostra la crescita del patrimonio previdenziale complessivo nel tempo, non
-// solo lo snapshot più recente. "Cluster" nel senso di un cluster (barra) per
-// anno, stacked al suo interno per fondo. Totale sempre etichettato sopra la
-// barra (non solo in tooltip, altrimenti i valori si leggono solo passandoci
-// sopra col mouse).
-function GraficoFondiTempo({ anni, fondiOrdinati }) {
+// Tutti i grafici sotto sono HTML/CSS puro (barre = div con altezza in %),
+// non SVG con preserveAspectRatio="none": su un contenitore molto più largo
+// che alto (tipico di un dashboard desktop) quella modalità scala il testo in
+// modo non uniforme e lo schiaccia — bug scoperto perché le etichette anno
+// erano illeggibili. Con barre HTML il testo (valori, anni, legenda) è sempre
+// normale indipendentemente dalla larghezza del contenitore.
+
+// Barre impilate per anno: ogni colonna è un anno, i segmenti sono i singoli
+// fondi (ultimo controvalore noto entro quell'anno_effettivo — vedi sopra).
+// Totale sempre in etichetta sopra la barra (non solo al passaggio del mouse).
+function BarreControvaloreFondi({ anni, fondiOrdinati, altezza = 180 }) {
   const [hover, setHover] = useState(null);
-  const w = 720, h = 200, padTop = 26, padBottom = 10;
   const totaliPerAnno = anni.map((a) => fondiOrdinati.reduce((s, f) => s + (a.valori.get(f.id) ?? 0), 0));
   const max = Math.max(...totaliPerAnno, 1);
-  const slot = w / anni.length;
-  const barW = Math.max(16, slot * 0.55);
 
   return (
     <div>
@@ -55,45 +55,43 @@ function GraficoFondiTempo({ anni, fondiOrdinati }) {
           </span>
         ))}
       </div>
-      <div className="relative">
-        {hover !== null && (
-          <div
-            className="pointer-events-none absolute z-10 -translate-x-1/2 -translate-y-full whitespace-nowrap rounded-chip bg-hero px-2.5 py-1.5 text-xs font-bold text-white"
-            style={{ left: `${((hover + 0.5) / anni.length) * 100}%`, top: `${((padTop + (1 - totaliPerAnno[hover] / max) * (h - padTop - padBottom)) / (h + padBottom)) * 100}%` }}
-          >
-            <div className="mb-0.5">{anni[hover].anno}</div>
+      <div className="mb-2 min-h-[1.25rem] text-xs">
+        {hover !== null ? (
+          <span className="font-semibold">
+            <span className="text-ink">{anni[hover].anno}</span>
+            {" — "}
             {fondiOrdinati.map((f) => {
               const v = anni[hover].valori.get(f.id);
-              return v ? <div key={f.id}>{f.nome}: {fmtEur(v)}</div> : null;
-            })}
-            <div className="mt-0.5 border-t border-white/30 pt-0.5">Totale: {fmtEur(totaliPerAnno[hover])}</div>
-          </div>
-        )}
-        <svg viewBox={`0 0 ${w} ${h + padBottom}`} preserveAspectRatio="none" className="h-56 w-full">
-          {anni.map((a, i) => {
-            const x = i * slot + (slot - barW) / 2;
-            let yCursor = h;
-            const segmenti = fondiOrdinati.map((f, fi) => {
-              const v = a.valori.get(f.id) ?? 0;
-              const altezza = (v / max) * (h - padTop - padBottom);
-              const y = yCursor - altezza;
-              yCursor = y;
-              return { fi, y, altezza, v };
-            });
-            return (
-              <g key={a.anno} onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)}>
-                {segmenti.map((s) => s.v > 0 && (
-                  <rect key={s.fi} x={x} y={s.y} width={barW} height={s.altezza}
-                    fill={PALETTE_FONDI[s.fi % PALETTE_FONDI.length]} opacity={hover === null || hover === i ? 1 : 0.35} />
-                ))}
-                <text x={x + barW / 2} y={yCursor - 6} textAnchor="middle" fontSize="11" fontWeight="700" fill="#0B0C10">
-                  {fmtEurCompatto(totaliPerAnno[i])}
-                </text>
-                <text x={x + barW / 2} y={h + 24} textAnchor="middle" fontSize="10" fill="#6B7280">{a.anno}</text>
-              </g>
-            );
-          })}
-        </svg>
+              return v ? `${f.nome}: ${fmtEur(v)}` : null;
+            }).filter(Boolean).join(" · ")}
+            {" · "}Totale {fmtEur(totaliPerAnno[hover])}
+          </span>
+        ) : <span className="text-muted">Passa il mouse su una colonna per il dettaglio</span>}
+      </div>
+      <div className="flex items-end gap-2 sm:gap-4" style={{ height: altezza + 44 }}>
+        {anni.map((a, i) => {
+          const totale = totaliPerAnno[i];
+          return (
+            <div
+              key={a.anno}
+              className="flex flex-1 flex-col items-center"
+              onMouseEnter={() => setHover(i)}
+              onMouseLeave={() => setHover(null)}
+            >
+              <div className="mb-1 whitespace-nowrap text-xs font-bold">{fmtEurCompatto(totale)}</div>
+              <div className="flex w-full max-w-[72px] flex-col-reverse overflow-hidden rounded-t-md" style={{ height: altezza }}>
+                {fondiOrdinati.map((f, fi) => {
+                  const v = a.valori.get(f.id) ?? 0;
+                  if (v <= 0) return null;
+                  return (
+                    <div key={f.id} style={{ height: `${(v / max) * 100}%`, background: PALETTE_FONDI[fi % PALETTE_FONDI.length] }} />
+                  );
+                })}
+              </div>
+              <div className="mt-1.5 text-xs font-semibold text-muted">{a.anno}</div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -103,53 +101,51 @@ function GraficoFondiTempo({ anni, fondiOrdinati }) {
 // annuale) riporta il dato in rendimento_periodo_pct: mai ricalcolato da
 // variazione-controvalore-meno-versamenti, che darebbe un numero sbagliato
 // quando ci sono grossi versamenti infra-annuali (il rendimento reale è sulla
-// giacenza media, non sul saldo iniziale — vedi migration 0047). Anni/fondi
-// senza dato ufficiale restano assenti dal grafico, non stimati.
-function GraficoRendimentoFondi({ anni, fondiOrdinati }) {
+// giacenza media, non sul saldo iniziale — vedi migration 0047). Stesso asse
+// anni del grafico controvalore (passato da fuori, non ricalcolato qui): un
+// anno/fondo senza dato ufficiale mostra un trattino, non sparisce dall'asse —
+// altrimenti "manca un anno" è indistinguibile da "il grafico ha un buco".
+function BarreRendimentoFondi({ anni, fondiOrdinati, altezza = 140 }) {
   const [hover, setHover] = useState(null);
-  const w = 720, h = 160, padTop = 20, padBottom = 10;
   const tutti = anni.flatMap((a) => [...a.rendimenti.values()]);
   const max = Math.max(...tutti, 1);
-  const slot = w / anni.length;
-  const gruppoW = Math.max(20, slot * 0.7);
-  const barW = Math.max(6, (gruppoW - (fondiOrdinati.length - 1) * 3) / fondiOrdinati.length);
 
   return (
     <div>
-      <div className="relative">
-        {hover && (
+      <div className="mb-2 min-h-[1.25rem] text-xs">
+        {hover !== null ? (
+          <span className="font-semibold">
+            <span className="text-ink">{anni[hover].anno}</span>
+            {" — "}
+            {fondiOrdinati.map((f) => {
+              const v = anni[hover].rendimenti.get(f.id);
+              return `${f.nome}: ${v != null ? `+${v.toFixed(2)}%` : "n/d"}`;
+            }).join(" · ")}
+          </span>
+        ) : <span className="text-muted">Passa il mouse su una colonna per il dettaglio</span>}
+      </div>
+      <div className="flex items-end gap-2 sm:gap-4" style={{ height: altezza + 44 }}>
+        {anni.map((a, i) => (
           <div
-            className="pointer-events-none absolute z-10 -translate-x-1/2 -translate-y-full whitespace-nowrap rounded-chip bg-hero px-2.5 py-1.5 text-xs font-bold text-white"
-            style={{ left: `${hover.leftPct}%`, top: `${hover.topPct}%` }}
+            key={a.anno}
+            className="flex flex-1 flex-col items-center"
+            onMouseEnter={() => setHover(i)}
+            onMouseLeave={() => setHover(null)}
           >
-            {hover.nome} {hover.anno}: +{hover.pct.toFixed(2)}%
+            <div className="flex w-full max-w-[72px] items-end justify-center gap-1.5" style={{ height: altezza }}>
+              {fondiOrdinati.map((f, fi) => {
+                const v = a.rendimenti.get(f.id);
+                if (v == null) {
+                  return <div key={f.id} className="mb-0 h-0.5 w-3 self-end rounded-full bg-line" title="n/d" />;
+                }
+                return (
+                  <div key={f.id} className="w-3 rounded-t-sm" style={{ height: `${Math.max((v / max) * 100, 3)}%`, background: PALETTE_FONDI[fi % PALETTE_FONDI.length] }} />
+                );
+              })}
+            </div>
+            <div className="mt-1.5 text-xs font-semibold text-muted">{a.anno}</div>
           </div>
-        )}
-        <svg viewBox={`0 0 ${w} ${h + padBottom}`} preserveAspectRatio="none" className="h-44 w-full">
-          {anni.map((a, i) => {
-            const xGruppo = i * slot + (slot - gruppoW) / 2;
-            return (
-              <g key={a.anno}>
-                {fondiOrdinati.map((f, fi) => {
-                  const pct = a.rendimenti.get(f.id);
-                  if (pct == null) return null;
-                  const x = xGruppo + fi * (barW + 3);
-                  const altezza = (pct / max) * (h - padTop - padBottom);
-                  const y = h - altezza;
-                  return (
-                    <rect
-                      key={f.id} x={x} y={y} width={barW} height={altezza} rx={2}
-                      fill={PALETTE_FONDI[fi % PALETTE_FONDI.length]}
-                      onMouseEnter={() => setHover({ nome: f.nome, anno: a.anno, pct, leftPct: ((x + barW / 2) / w) * 100, topPct: (y / (h + padBottom)) * 100 })}
-                      onMouseLeave={() => setHover(null)}
-                    />
-                  );
-                })}
-                <text x={xGruppo + gruppoW / 2} y={h + 24} textAnchor="middle" fontSize="10" fill="#6B7280">{a.anno}</text>
-              </g>
-            );
-          })}
-        </svg>
+        ))}
       </div>
     </div>
   );
@@ -160,14 +156,11 @@ function GraficoRendimentoFondi({ anni, fondiOrdinati }) {
 // si attiva per qualunque fondo con più di un tipo_versamento distinto (oggi
 // solo Generali, che ha tutti e tre; AXA ha solo "volontario" quindi lo stack
 // avrebbe un solo segmento — non renderizzato, non aggiunge informazione).
-function GraficoContributiFondo({ perAnno, tipiPresenti }) {
+function BarreContributiFondo({ perAnno, tipiPresenti, altezza = 140 }) {
   const [hover, setHover] = useState(null);
   const anni = [...perAnno.keys()].sort((a, b) => a - b);
-  const w = 640, h = 160, padTop = 22, padBottom = 10;
   const totali = anni.map((a) => tipiPresenti.reduce((s, t) => s + (perAnno.get(a).get(t) ?? 0), 0));
   const max = Math.max(...totali, 1);
-  const slot = w / anni.length;
-  const barW = Math.max(16, slot * 0.5);
 
   return (
     <div>
@@ -179,41 +172,39 @@ function GraficoContributiFondo({ perAnno, tipiPresenti }) {
           </span>
         ))}
       </div>
-      <div className="relative">
-        {hover !== null && (
-          <div
-            className="pointer-events-none absolute z-10 -translate-x-1/2 -translate-y-full whitespace-nowrap rounded-chip bg-hero px-2.5 py-1.5 text-xs font-bold text-white"
-            style={{ left: `${((hover + 0.5) / anni.length) * 100}%`, top: `${((padTop + (1 - totali[hover] / max) * (h - padTop - padBottom)) / (h + padBottom)) * 100}%` }}
-          >
-            <div className="mb-0.5">{anni[hover]}</div>
+      <div className="mb-2 min-h-[1.25rem] text-xs">
+        {hover !== null ? (
+          <span className="font-semibold">
+            <span className="text-ink">{anni[hover]}</span>
+            {" — "}
             {tipiPresenti.map((t) => {
               const v = perAnno.get(anni[hover]).get(t);
-              return v ? <div key={t}>{TIPO_VERSAMENTO_LABEL[t] ?? t}: {fmtEur(v)}</div> : null;
-            })}
-          </div>
-        )}
-        <svg viewBox={`0 0 ${w} ${h + padBottom}`} preserveAspectRatio="none" className="h-44 w-full">
-          {anni.map((anno, i) => {
-            const x = i * slot + (slot - barW) / 2;
-            let yCursor = h;
-            const valori = perAnno.get(anno);
-            const segmenti = tipiPresenti.map((t) => {
-              const v = valori.get(t) ?? 0;
-              const altezza = (v / max) * (h - padTop - padBottom);
-              const y = yCursor - altezza;
-              yCursor = y;
-              return { t, y, altezza, v };
-            });
-            return (
-              <g key={anno} onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)}>
-                {segmenti.map((s) => s.v > 0 && (
-                  <rect key={s.t} x={x} y={s.y} width={barW} height={s.altezza} fill={PALETTE_TIPO_VERSAMENTO[s.t]} opacity={hover === null || hover === i ? 1 : 0.35} />
-                ))}
-                <text x={x + barW / 2} y={h + 24} textAnchor="middle" fontSize="10" fill="#6B7280">{anno}</text>
-              </g>
-            );
-          })}
-        </svg>
+              return v ? `${TIPO_VERSAMENTO_LABEL[t] ?? t}: ${fmtEur(v)}` : null;
+            }).filter(Boolean).join(" · ")}
+          </span>
+        ) : <span className="text-muted">Passa il mouse su una colonna per il dettaglio</span>}
+      </div>
+      <div className="flex items-end gap-2 sm:gap-4" style={{ height: altezza + 30 }}>
+        {anni.map((anno, i) => {
+          const valori = perAnno.get(anno);
+          return (
+            <div
+              key={anno}
+              className="flex flex-1 flex-col items-center"
+              onMouseEnter={() => setHover(i)}
+              onMouseLeave={() => setHover(null)}
+            >
+              <div className="flex w-full max-w-[56px] flex-col-reverse overflow-hidden rounded-t-md" style={{ height: altezza }}>
+                {tipiPresenti.map((t) => {
+                  const v = valori.get(t) ?? 0;
+                  if (v <= 0) return null;
+                  return <div key={t} style={{ height: `${(v / max) * 100}%`, background: PALETTE_TIPO_VERSAMENTO[t] }} />;
+                })}
+              </div>
+              <div className="mt-1.5 text-xs font-semibold text-muted">{anno}</div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -311,7 +302,12 @@ export default function FondiPensione() {
     anno,
     valori: new Map([...perFondo.entries()].map(([fondoId, v]) => [fondoId, v.controvalore])),
   }));
-  const anniRendimento = [...perAnnoRendimento.entries()].sort((a, b) => a[0] - b[0]).map(([anno, rendimenti]) => ({ anno, rendimenti }));
+  // Stesso asse anni del grafico controvalore (non solo gli anni con un
+  // rendimento noto): un anno senza dato per un fondo mostra un trattino nel
+  // grafico invece di sparire, altrimenti i due grafici affiancati avrebbero
+  // colonne diverse e sarebbero impossibili da confrontare a colpo d'occhio.
+  const anniRendimento = anni.map((a) => ({ anno: a.anno, rendimenti: perAnnoRendimento.get(a.anno) ?? new Map() }));
+  const haRendimenti = anniRendimento.some((a) => a.rendimenti.size > 0);
 
   return (
     <div>
@@ -332,25 +328,19 @@ export default function FondiPensione() {
             <Card><p className="mb-1 text-xs font-semibold text-muted">Fondi registrati</p><p className="font-display text-lg font-extrabold">{fondi.length}</p></Card>
           </div>
           {anni.length > 0 && (
-            <Card className="mb-6">
-              <h3 className="mb-3 font-display text-sm font-bold">Controvalore per fondo nel tempo</h3>
-              <GraficoFondiTempo anni={anni} fondiOrdinati={fondi} />
-            </Card>
-          )}
-          {anniRendimento.length > 0 && (
-            <Card className="mb-6">
-              <h3 className="mb-1 font-display text-sm font-bold">Rendimento netto annuo</h3>
-              <p className="mb-3 text-xs text-muted">Solo dove dichiarato dal Prospetto ufficiale del fondo — mai ricalcolato da noi (i versamenti infra-annuali renderebbero un rendimento su saldo iniziale fuorviante).</p>
-              <div className="mb-2 flex flex-wrap gap-x-4 gap-y-1.5 text-xs font-semibold text-muted">
-                {fondi.map((f, i) => (
-                  <span key={f.id} className="flex items-center gap-1.5">
-                    <span className="h-2.5 w-2.5 rounded-sm" style={{ background: PALETTE_FONDI[i % PALETTE_FONDI.length] }} />
-                    {f.nome}
-                  </span>
-                ))}
-              </div>
-              <GraficoRendimentoFondi anni={anniRendimento} fondiOrdinati={fondi} />
-            </Card>
+            <div className="mb-6 grid grid-cols-1 gap-4 xl:grid-cols-2">
+              <Card>
+                <h3 className="mb-3 font-display text-sm font-bold">Controvalore per fondo nel tempo</h3>
+                <BarreControvaloreFondi anni={anni} fondiOrdinati={fondi} />
+              </Card>
+              {haRendimenti && (
+                <Card>
+                  <h3 className="mb-1 font-display text-sm font-bold">Rendimento netto annuo</h3>
+                  <p className="mb-3 text-xs text-muted">Solo dove dichiarato dal Prospetto ufficiale — mai ricalcolato da noi (versamenti infra-annuali grossi renderebbero il calcolo fuorviante).</p>
+                  <BarreRendimentoFondi anni={anniRendimento} fondiOrdinati={fondi} />
+                </Card>
+              )}
+            </div>
           )}
         </>
       )}
@@ -398,7 +388,7 @@ export default function FondiPensione() {
                 {tipiOrdinati.length > 1 && (
                   <Card>
                     <h4 className="mb-2 font-display text-xs font-bold uppercase tracking-wide text-muted">Composizione versamenti per anno</h4>
-                    <GraficoContributiFondo perAnno={perAnnoTipo} tipiPresenti={tipiOrdinati} />
+                    <BarreContributiFondo perAnno={perAnnoTipo} tipiPresenti={tipiOrdinati} />
                   </Card>
                 )}
               </div>
